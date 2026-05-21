@@ -124,34 +124,7 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          {/* QUẢN LÝ TAB */}
-          <Text style={dynamicStyles.sectionTitle}>👁️ QUẢN LÝ TAB</Text>
-          <View style={dynamicStyles.card}>
-            {[
-              { key: 'calendar', label: 'Lịch làm việc', icon: 'calendar' },
-              { key: 'notes', label: 'Ghi chú', icon: 'document-text' },
-              { key: 'sheets', label: 'Trang tính', icon: 'grid' },
-              { key: 'media', label: 'Media AI', icon: 'images' },
-              { key: 'reminders', label: 'Nhắc nhở', icon: 'alarm' },
-            ].map((item, index, arr) => (
-              <View key={item.key} style={{
-                  flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 10,
-                  borderBottomWidth: index < arr.length - 1 ? 1 : 0, borderBottomColor: colors.border
-              }}>
-                <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                   <View style={dynamicStyles.iconBox}><Ionicons name={item.icon as any} size={18} color={colors.primary} /></View>
-                   <Text style={[dynamicStyles.text, {marginLeft: 12, fontSize: 15}]}>{item.label}</Text>
-                </View>
-                <Switch 
-                  value={tabState[item.key as keyof typeof tabState]} 
-                  onValueChange={() => toggleTab(item.key as any)} 
-                  trackColor={{ false: "#E5E7EB", true: colors.primary }} 
-                  thumbColor={"#fff"} 
-                  style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }} 
-                />
-              </View>
-            ))}
-          </View>
+          
 
         </View>
       </ScrollView>

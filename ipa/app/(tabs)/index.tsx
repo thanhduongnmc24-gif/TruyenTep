@@ -235,6 +235,7 @@ export default function DemThepScreen() {
                 {/* [ĐÃ SỬA] Dùng hàm getDisplayImage() để hiển thị ảnh động */}
                 {/* Thẻ ScrollView bọc ngoài để hỗ trợ zoom mượt mà bằng 2 ngón tay trên iOS */}
 <ScrollView
+  key={image} // [TUYỆT CHIÊU] Ép ScrollView phải làm mới hoàn toàn (reset zoom, reset vị trí) khi chọn ảnh mới
   maximumZoomScale={5} 
   minimumZoomScale={1} 
   showsHorizontalScrollIndicator={false}
@@ -245,7 +246,6 @@ export default function DemThepScreen() {
 >
   <Image 
     source={{ uri: getDisplayImage()! }} 
-    // Gán thêm minWidth và minHeight để ảnh không bị teo lại khi đưa vào trong ScrollView
     style={[styles.previewImage, { width: '100%', height: '100%', minWidth: 350, minHeight: 300 }]} 
     resizeMode="contain" 
   />
