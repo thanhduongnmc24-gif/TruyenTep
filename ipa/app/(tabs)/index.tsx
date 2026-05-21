@@ -23,10 +23,14 @@ type HistoryItem = {
 export default function DemThepScreen() {
   const { colors, theme } = useTheme(); 
   const [image, setImage] = useState<string | null>(null);
-  const [resultImage, setResultImage] = useState<string | null>(null);
+  const [resultImage, setResultImage] = useState<string | null>(null); // Dùng làm ảnh mặc định để lưu lịch sử
   const [steelCount, setSteelCount] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+
+  // [MỚI] Biến lưu 3 phiên bản ảnh và trạng thái công tắc
+  const [resultImages, setResultImages] = useState<{v1: string | null, v2: string | null, v3: string | null}>({ v1: null, v2: null, v3: null });
+  const [currentMode, setCurrentMode] = useState<number>(1);
 
   useEffect(() => {
     loadHistory();
@@ -114,6 +118,11 @@ export default function DemThepScreen() {
       setImage(selectedUri);
       setResultImage(null);
       setSteelCount(null);
+      
+      // [MỚI] Reset lại các ảnh và công tắc khi chọn ảnh mới
+      setResultImages({ v1: null, v2: null, v3: null });
+      setCurrentMode(1);
+
       uploadToServer(selectedUri);
     }
   };
@@ -121,7 +130,6 @@ export default function DemThepScreen() {
   const uploadToServer = async (uri: string) => {
     setIsLoading(true);
     try {
-      // [Suy luận] Đọc cấu hình máy chủ được chọn từ bộ nhớ AsyncStorage ra
       const activeServer = await AsyncStorage.getItem('ACTIVE_SERVER') || 'colab';
       let currentServerUrl = '';
 
@@ -131,7 +139,6 @@ export default function DemThepScreen() {
         currentServerUrl = await AsyncStorage.getItem('HF_URL') || '';
       }
 
-      // Kiểm tra xem anh hai đã nhập link tương ứng chưa
       if (!currentServerUrl || currentServerUrl.trim() === '') {
         throw new Error('Anh hai chưa nhập đường link máy chủ tương ứng trong phần Cài đặt kìa!');
       }
@@ -166,10 +173,19 @@ export default function DemThepScreen() {
       
       if (data.count !== undefined) {
         setSteelCount(data.count);
-        const processedUri = data.image_base64 ? `data:image/jpeg;base64,${data.image_base64}` : undefined;
-        if (processedUri) setResultImage(processedUri);
         
-        saveToHistory(uri, processedUri, data.count);
+        // [MỚI] Lấy 3 phiên bản ảnh từ server
+        const uri1 = data.image_v1 ? `data:image/jpeg;base64,${data.image_v1}` : null;
+        const uri2 = data.image_v2 ? `data:image/jpeg;base64,${data.image_v2}` : null;
+        const uri3 = data.image_v3 ? `data:image/jpeg;base64,${data.image_v3}` : null;
+        
+        setResultImages({ v1: uri1, v2: uri2, v3: uri3 });
+        
+        // Vẫn set resultImage bằng v1 để dự phòng và dùng chung cho lịch sử
+        const fallbackUri = uri1 || (data.image_base64 ? `data:image/jpeg;base64,${data.image_base64}` : undefined);
+        if (fallbackUri) setResultImage(fallbackUri);
+        
+        saveToHistory(uri, fallbackUri, data.count);
       } else if (data.error) {
         if (Platform.OS === 'web') alert(`Server AI báo lỗi: ${data.error}`);
         else Alert.alert('Lỗi từ AI', data.error);
@@ -185,6 +201,14 @@ export default function DemThepScreen() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // [MỚI] Hàm quyết định hiển thị ảnh nào dựa trên công tắc
+  const getDisplayImage = () => {
+    if (currentMode === 1 && resultImages.v1) return resultImages.v1;
+    if (currentMode === 2 && resultImages.v2) return resultImages.v2;
+    if (currentMode === 3 && resultImages.v3) return resultImages.v3;
+    return resultImage || image; // Fallback
   };
 
   const bgColors = [colors.bg, colors.bg] as [string, string, ...string[]];
@@ -208,7 +232,8 @@ export default function DemThepScreen() {
               </View>
             ) : resultImage || image ? (
               <>
-                <Image source={{ uri: resultImage || image! }} style={styles.previewImage} resizeMode="contain" />
+                {/* [ĐÃ SỬA] Dùng hàm getDisplayImage() để hiển thị ảnh động */}
+                <Image source={{ uri: getDisplayImage()! }} style={styles.previewImage} resizeMode="contain" />
                 {steelCount !== null && (
                   <View style={[styles.resultBadge, { backgroundColor: colors.primary }]}>
                      <Text style={styles.resultText}>Tổng: {steelCount} cây</Text>
@@ -222,6 +247,32 @@ export default function DemThepScreen() {
               </View>
             )}
           </View>
+
+          {/* [MỚI] BỘ 3 CÔNG TẮC ĐIỀU KHIỂN HIỂN THỊ */}
+          {steelCount !== null && !isLoading && resultImages.v1 && (
+            <View style={[styles.toggleContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <TouchableOpacity 
+                style={[styles.toggleBtn, currentMode === 1 && { backgroundColor: colors.primary }]}
+                onPress={() => setCurrentMode(1)}
+              >
+                <Text style={[styles.toggleText, currentMode === 1 ? { color: 'white' } : { color: colors.subText }]}>Chỉ Khung</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.toggleBtn, currentMode === 2 && { backgroundColor: colors.primary }]}
+                onPress={() => setCurrentMode(2)}
+              >
+                <Text style={[styles.toggleText, currentMode === 2 ? { color: 'white' } : { color: colors.subText }]}>Khung + Số</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.toggleBtn, currentMode === 3 && { backgroundColor: colors.primary }]}
+                onPress={() => setCurrentMode(3)}
+              >
+                <Text style={[styles.toggleText, currentMode === 3 ? { color: 'white' } : { color: colors.subText }]}>Chỉ Số</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* NÚT THAO TÁC */}
           <View style={styles.buttonRow}>
@@ -283,7 +334,7 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 14, marginTop: 4 },
   imageContainer: { 
     width: '100%', height: 300, borderRadius: 16, 
-    borderWidth: 1, overflow: 'hidden', marginBottom: 20,
+    borderWidth: 1, overflow: 'hidden', marginBottom: 15, // Đã giảm marginBottom để nhường chỗ cho công tắc
     justifyContent: 'center', alignItems: 'center'
   },
   previewImage: { width: '100%', height: '100%' },
@@ -296,12 +347,33 @@ const styles = StyleSheet.create({
     shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 5 
   },
   resultText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  
+  // [MỚI] CSS CHUYÊN DỤNG CHO BỘ CÔNG TẮC
+  toggleContainer: {
+    flexDirection: 'row',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 4,
+    marginBottom: 20,
+    justifyContent: 'space-between',
+  },
+  toggleBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  toggleText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  
   buttonRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
   actionBtn: { 
     flex: 1, flexDirection: 'row', alignItems: 'center', 
     justifyContent: 'center', padding: 15, borderRadius: 12, marginHorizontal: 5 
   },
-  btnText: { fontWeight: 'bold', marginLeft: 8, fontSize: 16 },
+  btnText: { fontWeight: 'bold', marginLeft: 8, fontSize: 16, color: 'white' },
   separator: { height: 1, backgroundColor: 'rgba(150,150,150,0.2)', marginVertical: 20 },
   historyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
   historyTitle: { fontSize: 18, fontWeight: 'bold' },
