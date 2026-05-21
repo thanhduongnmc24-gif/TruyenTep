@@ -6,12 +6,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator'; // Tèo thêm thư viện nén ảnh ở đây
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { format } from 'date-fns';
 
-// Anh hai nhớ cập nhật lại link Ngrok nếu khởi động lại Colab nhé
 const SERVER_URL = 'https://lakeesha-nonautonomous-catarina.ngrok-free.dev/predict'; 
 
 type HistoryItem = {
@@ -87,7 +87,7 @@ export default function DemThepScreen() {
     const options: ImagePicker.ImagePickerOptions = {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: false,
-      quality: 0.8,
+      quality: 1, // Mình lấy ảnh gốc tốt nhất để Manipulator tự xử phía sau
     };
 
     let result;
@@ -100,7 +100,20 @@ export default function DemThepScreen() {
     }
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      const selectedUri = result.assets[0].uri;
+      let selectedUri = result.assets[0].uri;
+      
+      try {
+        // Bí kíp nén ảnh của Tèo: Ép về bề ngang 1024, chiều cao tự canh tỷ lệ, nén JPEG 70%
+        const manipResult = await ImageManipulator.manipulateAsync(
+          selectedUri,
+          [{ resize: { width: 1024 } }], 
+          { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+        );
+        selectedUri = manipResult.uri;
+      } catch (e) {
+        console.log("Lỗi ép cân ảnh, xài ảnh gốc:", e);
+      }
+
       setImage(selectedUri);
       setResultImage(null);
       setSteelCount(null);
@@ -114,12 +127,10 @@ export default function DemThepScreen() {
       const formData = new FormData();
       
       if (Platform.OS === 'web') {
-        // Xử lý biến đổi ảnh thành Blob dành riêng cho môi trường Web
         const res = await fetch(uri);
         const blob = await res.blob();
         formData.append('file', blob, 'image.jpg');
       } else {
-        // Xử lý chuẩn cho iOS / Android
         const filename = uri.split('/').pop() || 'image.jpg';
         const match = /\.(\w+)$/.exec(filename);
         const type = match ? `image/${match[1]}` : `image`;
@@ -131,7 +142,6 @@ export default function DemThepScreen() {
         method: 'POST',
         body: formData,
         headers: {
-          // Thêm cờ này để đi xuyên qua màn hình cảnh báo của Ngrok
           'ngrok-skip-browser-warning': 'true',
         },
       });
@@ -149,7 +159,6 @@ export default function DemThepScreen() {
         
         saveToHistory(uri, processedUri, data.count);
       } else if (data.error) {
-        // Bắt lỗi từ server Python gửi về
         if (Platform.OS === 'web') alert(`Server AI báo lỗi: ${data.error}`);
         else Alert.alert('Lỗi từ AI', data.error);
       } else {

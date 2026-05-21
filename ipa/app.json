@@ -1,17 +1,17 @@
 {
   "expo": {
-    "name": "Ghi chú",
-    "slug": "ghi-chu",
+    "name": "Đếm thép",
+    "slug": "dem-thep",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "ghi-chu",
+    "scheme": "dem-thep",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "Ghichu.duongnt.io.vn",
-      "appleTeamId": "GhiChu",
+      "bundleIdentifier": "Demthep.duongnt.io.vn",
+      "appleTeamId": "DemThep",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCalendarsUsageDescription": "App cần quyền truy cập Lịch để nhắc nhở ca làm việc.",
