@@ -11,7 +11,6 @@ import { useTheme } from '../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { format } from 'date-fns';
 
-// [Chưa xác minh] - URL API này Tèo đang để mẫu, anh hai nhớ đổi thành URL thật của server YOLO nhé!
 const SERVER_URL = 'https://lakeesha-nonautonomous-catarina.ngrok-free.dev/predict'; 
 
 type HistoryItem = {
@@ -63,17 +62,25 @@ export default function DemThepScreen() {
   };
 
   const clearHistory = async () => {
-    Alert.alert('Xóa lịch sử', 'Anh hai có chắc muốn xóa hết lịch sử đếm không?', [
-      { text: 'Hủy', style: 'cancel' },
-      { 
-        text: 'Xóa sạch', 
-        style: 'destructive',
-        onPress: async () => {
-          await AsyncStorage.removeItem('DEMTHEP_HISTORY');
-          setHistory([]);
+    if (Platform.OS === 'web') {
+        // [Suy luận] Trên web hàm Alert.alert thỉnh thoảng hoạt động không chuẩn, dùng window.confirm sẽ an toàn hơn
+        if (window.confirm('Anh hai có chắc muốn xóa hết lịch sử đếm không?')) {
+            await AsyncStorage.removeItem('DEMTHEP_HISTORY');
+            setHistory([]);
         }
-      }
-    ]);
+    } else {
+        Alert.alert('Xóa lịch sử', 'Anh hai có chắc muốn xóa hết lịch sử đếm không?', [
+        { text: 'Hủy', style: 'cancel' },
+        { 
+            text: 'Xóa sạch', 
+            style: 'destructive',
+            onPress: async () => {
+            await AsyncStorage.removeItem('DEMTHEP_HISTORY');
+            setHistory([]);
+            }
+        }
+        ]);
+    }
   };
 
   const pickImage = async (useCamera: boolean) => {
@@ -105,18 +112,28 @@ export default function DemThepScreen() {
     setIsLoading(true);
     try {
       const formData = new FormData();
-      const filename = uri.split('/').pop() || 'image.jpg';
-      const match = /\.(\w+)$/.exec(filename);
-      const type = match ? `image/${match[1]}` : `image`;
-
-      // @ts-ignore - Ignore type error cho RN FormData
-      formData.append('file', { uri, name: filename, type });
+      
+      if (Platform.OS === 'web') {
+        // Xử lý biến đổi ảnh thành Blob dành riêng cho môi trường Web
+        const res = await fetch(uri);
+        const blob = await res.blob();
+        formData.append('file', blob, 'image.jpg');
+      } else {
+        // Xử lý chuẩn cho iOS / Android
+        const filename = uri.split('/').pop() || 'image.jpg';
+        const match = /\.(\w+)$/.exec(filename);
+        const type = match ? `image/${match[1]}` : `image`;
+        // @ts-ignore
+        formData.append('file', { uri, name: filename, type });
+      }
 
       const response = await fetch(SERVER_URL, {
         method: 'POST',
         body: formData,
         headers: {
-          'Content-Type': 'multipart/form-data',
+          // Bỏ 'Content-Type' đi để trình duyệt tự xử lý boundary
+          // Thêm cờ này để đi xuyên qua màn hình cảnh báo của Ngrok
+          'ngrok-skip-browser-warning': 'true',
         },
       });
 
@@ -126,7 +143,6 @@ export default function DemThepScreen() {
 
       const data = await response.json();
       
-      // Tèo giả định server trả về { count: 120, image_base64: "..." }
       if (data.count !== undefined) {
         setSteelCount(data.count);
         const processedUri = data.image_base64 ? `data:image/jpeg;base64,${data.image_base64}` : undefined;
@@ -134,11 +150,13 @@ export default function DemThepScreen() {
         
         saveToHistory(uri, processedUri, data.count);
       } else {
-        Alert.alert('Lỗi', 'Không nhận được dữ liệu số lượng từ server.');
+        if (Platform.OS === 'web') alert('Không nhận được dữ liệu số lượng từ server.');
+        else Alert.alert('Lỗi', 'Không nhận được dữ liệu số lượng từ server.');
       }
     } catch (error) {
       console.log(error);
-      Alert.alert('Lỗi kết nối', 'Không thể gửi ảnh lên server. Anh hai kiểm tra lại đường truyền nhé!');
+      if (Platform.OS === 'web') alert('Lỗi kết nối. Anh hai xem lại Colab hoặc đường link Ngrok nhé!');
+      else Alert.alert('Lỗi kết nối', 'Không thể gửi ảnh lên server. Anh hai kiểm tra lại đường truyền nhé!');
     } finally {
       setIsLoading(false);
     }
@@ -182,6 +200,7 @@ export default function DemThepScreen() {
 
           {/* NÚT THAO TÁC */}
           <View style={styles.buttonRow}>
+            {/* Trên Web thì API Camera đôi khi không support tốt nên cứ để đó, ta test bằng Thư Viện là chính */}
             <TouchableOpacity 
               style={[styles.actionBtn, { backgroundColor: colors.primary }]} 
               onPress={() => pickImage(true)}
