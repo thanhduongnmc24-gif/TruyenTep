@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, ScrollView, 
   Image, ActivityIndicator, Alert, Platform 
@@ -22,11 +22,16 @@ type HistoryItem = {
 
 export default function DemThepScreen() {
   const { colors } = useTheme(); 
+  const mainScrollRef = useRef<ScrollView>(null); // Dùng để cuộn màn hình lên đầu
+
   const [image, setImage] = useState<string | null>(null);
   const [resultImage, setResultImage] = useState<string | null>(null);
   const [steelCount, setSteelCount] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+
+  // Chìa khóa vạn năng ép Reset Zoom
+  const [viewerKey, setViewerKey] = useState<string>(Date.now().toString());
 
   // 3 phiên bản ảnh cho 3 công tắc
   const [resultImages, setResultImages] = useState<{v1: string | null, v2: string | null, v3: string | null}>({ v1: null, v2: null, v3: null });
@@ -85,6 +90,23 @@ export default function DemThepScreen() {
     }
   };
 
+  // Hàm mở xem lại lịch sử
+  const viewHistoryItem = (item: HistoryItem) => {
+    setImage(item.originalImage);
+    setResultImage(item.processedImage || null);
+    setSteelCount(item.count);
+    
+    // Đưa ảnh vào các chế độ (nếu lịch sử chỉ lưu 1 ảnh thì cho hiển thị ở mọi chế độ)
+    setResultImages({ v1: item.processedImage || null, v2: null, v3: null });
+    setCurrentMode(1);
+    
+    // Đổi chìa khóa để reset khung zoom
+    setViewerKey(Date.now().toString());
+    
+    // Cuộn vèo lên trên cùng để xem ảnh
+    mainScrollRef.current?.scrollTo({ y: 0, animated: true });
+  };
+
   const pickImage = async (useCamera: boolean) => {
     const options: ImagePicker.ImagePickerOptions = {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -120,6 +142,9 @@ export default function DemThepScreen() {
       setSteelCount(null);
       setResultImages({ v1: null, v2: null, v3: null });
       setCurrentMode(1);
+      
+      // Xoay chìa khóa reset zoom cho ảnh mới
+      setViewerKey(Date.now().toString());
 
       uploadToServer(selectedUri);
     }
@@ -131,7 +156,6 @@ export default function DemThepScreen() {
       const activeServer = await AsyncStorage.getItem('ACTIVE_SERVER') || 'colab';
       let currentServerUrl = '';
 
-      // [Suy luận] Bổ sung thêm luồng đọc link của Kaggle
       if (activeServer === 'colab') {
         currentServerUrl = await AsyncStorage.getItem('COLAB_URL') || '';
       } else if (activeServer === 'hf') {
@@ -185,6 +209,10 @@ export default function DemThepScreen() {
         if (fallbackUri) setResultImage(fallbackUri);
         
         saveToHistory(uri, fallbackUri, data.count);
+
+        // Đếm xong có ảnh mới -> Xoay chìa khóa reset zoom lần nữa cho chắc
+        setViewerKey(Date.now().toString());
+
       } else if (data.error) {
         if (Platform.OS === 'web') alert(`Server AI báo lỗi: ${data.error}`);
         else Alert.alert('Lỗi từ AI', data.error);
@@ -214,14 +242,14 @@ export default function DemThepScreen() {
   return (
     <LinearGradient colors={bgColors} style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
+        <ScrollView ref={mainScrollRef} contentContainerStyle={styles.scrollContent}>
           
           <View style={styles.header}>
             <Text style={[styles.title, { color: colors.text }]}>Thần Nhãn Đếm Thép</Text>
             <Text style={[styles.subtitle, { color: colors.subText }]}>Năng suất x100 lần</Text>
           </View>
 
-          {/* KHU VỰC HIỂN THỊ ẢNH & KẾT QUẢ */}
+          {/* KHU VỰC HIỂN THỊ ẢNH */}
           <View style={[styles.imageContainer, { borderColor: colors.border, backgroundColor: colors.card }]}>
             {isLoading ? (
               <View style={styles.loadingBox}>
@@ -229,27 +257,23 @@ export default function DemThepScreen() {
                 <Text style={{ color: colors.text, marginTop: 10 }}>Đang nhờ AI đếm thử, chờ xíu...</Text>
               </View>
             ) : resultImage || image ? (
-              <>
-                {/* [ĐÃ SỬA LỖI TỤT ẢNH]: Gắn key biến đổi để ép ScrollView nhả zoom, trả về căn giữa tuyệt đối */}
-                <ScrollView
-                  key={image! + (steelCount !== null ? '_done' : '_raw')}
-                  maximumZoomScale={5} 
-                  minimumZoomScale={1} 
-                  showsHorizontalScrollIndicator={false}
-                  showsVerticalScrollIndicator={false}
-                  centerContent={true}
-                  style={{ width: '100%', height: '100%' }}
-                  contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center' }}
-                >
-                  <Image source={{ uri: getDisplayImage()! }} style={styles.previewImage} resizeMode="contain" />
-                </ScrollView>
-
-                {steelCount !== null && (
-                  <View style={[styles.resultBadge, { backgroundColor: colors.primary }]}>
-                     <Text style={styles.resultText}>Tổng: {steelCount} cây</Text>
-                  </View>
-                )}
-              </>
+              <ScrollView
+                key={viewerKey} // Chìa khóa vạn năng diệt tận gốc lỗi lún góc
+                maximumZoomScale={5} 
+                minimumZoomScale={1} 
+                showsHorizontalScrollIndicator={false}
+                showsVerticalScrollIndicator={false}
+                centerContent={true}
+                style={{ width: '100%', height: '100%' }}
+                contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center' }}
+              >
+                <Image 
+                  key={viewerKey + '_img'}
+                  source={{ uri: getDisplayImage()! }} 
+                  style={{ width: '100%', height: '100%' }} 
+                  resizeMode="contain" 
+                />
+              </ScrollView>
             ) : (
               <View style={styles.placeholderBox}>
                 <Ionicons name="image-outline" size={60} color={colors.subText} />
@@ -258,8 +282,17 @@ export default function DemThepScreen() {
             )}
           </View>
 
+          {/* KẾT QUẢ ĐẾM THÉP NẰM NGOÀI KHUNG ẢNH */}
+          {steelCount !== null && (
+            <View style={styles.totalContainer}>
+              <Text style={[styles.totalText, { color: colors.primary }]}>
+                Tổng: {steelCount} cây
+              </Text>
+            </View>
+          )}
+
           {/* BỘ 3 CÔNG TẮC ĐIỀU KHIỂN HIỂN THỊ */}
-          {steelCount !== null && !isLoading && resultImages.v1 && (
+          {steelCount !== null && !isLoading && (resultImages.v1 || resultImage) && (
             <View style={[styles.toggleContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <TouchableOpacity 
                 style={[styles.toggleBtn, currentMode === 1 && { backgroundColor: colors.primary }]}
@@ -319,7 +352,11 @@ export default function DemThepScreen() {
             <Text style={{ color: colors.subText, fontStyle: 'italic', textAlign: 'center' }}>Chưa có lịch sử đếm nào.</Text>
           ) : (
             history.map((item) => (
-              <View key={item.id} style={[styles.historyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <TouchableOpacity 
+                key={item.id} 
+                style={[styles.historyCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+                onPress={() => viewHistoryItem(item)} // Bấm vào để xem lại
+              >
                 <Image source={{ uri: item.processedImage || item.originalImage }} style={styles.historyThumb} />
                 <View style={styles.historyInfo}>
                   <Text style={[styles.historyCount, { color: colors.primary }]}>{item.count} cây thép</Text>
@@ -327,7 +364,8 @@ export default function DemThepScreen() {
                     {format(new Date(item.date), 'HH:mm - dd/MM/yyyy')}
                   </Text>
                 </View>
-              </View>
+                <Ionicons name="chevron-forward" size={20} color={colors.subText} />
+              </TouchableOpacity>
             ))
           )}
 
@@ -347,16 +385,23 @@ const styles = StyleSheet.create({
     borderWidth: 1, overflow: 'hidden', marginBottom: 15,
     justifyContent: 'center', alignItems: 'center'
   },
-  previewImage: { width: '100%', height: '100%' },
   placeholderBox: { alignItems: 'center', justifyContent: 'center' },
   loadingBox: { alignItems: 'center', justifyContent: 'center' },
-  resultBadge: { 
-    position: 'absolute', bottom: 10, right: 10, 
-    paddingHorizontal: 15, paddingVertical: 8, 
-    borderRadius: 20, shadowColor: '#000', shadowOpacity: 0.3, 
-    shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 5 
+  
+  // Style mới cho cục Tổng số cây nằm ngoài ảnh
+  totalContainer: {
+    alignItems: 'center',
+    marginBottom: 15,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    paddingVertical: 10,
+    borderRadius: 12,
   },
-  resultText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  totalText: {
+    fontSize: 22,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+
   toggleContainer: {
     flexDirection: 'row',
     borderRadius: 12,
