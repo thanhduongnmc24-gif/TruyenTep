@@ -233,7 +233,23 @@ export default function DemThepScreen() {
             ) : resultImage || image ? (
               <>
                 {/* [ĐÃ SỬA] Dùng hàm getDisplayImage() để hiển thị ảnh động */}
-                <Image source={{ uri: getDisplayImage()! }} style={styles.previewImage} resizeMode="contain" />
+                {/* Thẻ ScrollView bọc ngoài để hỗ trợ zoom mượt mà bằng 2 ngón tay trên iOS */}
+<ScrollView
+  maximumZoomScale={5} 
+  minimumZoomScale={1} 
+  showsHorizontalScrollIndicator={false}
+  showsVerticalScrollIndicator={false}
+  centerContent={true}
+  style={{ width: '100%', height: '100%' }}
+  contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center' }}
+>
+  <Image 
+    source={{ uri: getDisplayImage()! }} 
+    // Gán thêm minWidth và minHeight để ảnh không bị teo lại khi đưa vào trong ScrollView
+    style={[styles.previewImage, { width: '100%', height: '100%', minWidth: 350, minHeight: 300 }]} 
+    resizeMode="contain" 
+  />
+</ScrollView>
                 {steelCount !== null && (
                   <View style={[styles.resultBadge, { backgroundColor: colors.primary }]}>
                      <Text style={styles.resultText}>Tổng: {steelCount} cây</Text>
