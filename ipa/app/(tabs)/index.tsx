@@ -6,13 +6,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import * as ImageManipulator from 'expo-image-manipulator'; // Tèo thêm thư viện nén ảnh ở đây
+import * as ImageManipulator from 'expo-image-manipulator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { format } from 'date-fns';
-
-const SERVER_URL = 'https://lakeesha-nonautonomous-catarina.ngrok-free.dev/predict'; 
 
 type HistoryItem = {
   id: string;
@@ -87,7 +85,7 @@ export default function DemThepScreen() {
     const options: ImagePicker.ImagePickerOptions = {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: false,
-      quality: 1, // Mình lấy ảnh gốc tốt nhất để Manipulator tự xử phía sau
+      quality: 1,
     };
 
     let result;
@@ -103,7 +101,6 @@ export default function DemThepScreen() {
       let selectedUri = result.assets[0].uri;
       
       try {
-        // Bí kíp nén ảnh của Tèo: Ép về bề ngang 1024, chiều cao tự canh tỷ lệ, nén JPEG 70%
         const manipResult = await ImageManipulator.manipulateAsync(
           selectedUri,
           [{ resize: { width: 1024 } }], 
@@ -111,7 +108,7 @@ export default function DemThepScreen() {
         );
         selectedUri = manipResult.uri;
       } catch (e) {
-        console.log("Lỗi ép cân ảnh, xài ảnh gốc:", e);
+        console.log("Lỗi ép cân ảnh:", e);
       }
 
       setImage(selectedUri);
@@ -124,6 +121,21 @@ export default function DemThepScreen() {
   const uploadToServer = async (uri: string) => {
     setIsLoading(true);
     try {
+      // [Suy luận] Đọc cấu hình máy chủ được chọn từ bộ nhớ AsyncStorage ra
+      const activeServer = await AsyncStorage.getItem('ACTIVE_SERVER') || 'colab';
+      let currentServerUrl = '';
+
+      if (activeServer === 'colab') {
+        currentServerUrl = await AsyncStorage.getItem('COLAB_URL') || '';
+      } else {
+        currentServerUrl = await AsyncStorage.getItem('HF_URL') || '';
+      }
+
+      // Kiểm tra xem anh hai đã nhập link tương ứng chưa
+      if (!currentServerUrl || currentServerUrl.trim() === '') {
+        throw new Error('Anh hai chưa nhập đường link máy chủ tương ứng trong phần Cài đặt kìa!');
+      }
+
       const formData = new FormData();
       
       if (Platform.OS === 'web') {
@@ -138,7 +150,7 @@ export default function DemThepScreen() {
         formData.append('file', { uri, name: filename, type });
       }
 
-      const response = await fetch(SERVER_URL, {
+      const response = await fetch(currentServerUrl, {
         method: 'POST',
         body: formData,
         headers: {
@@ -147,7 +159,7 @@ export default function DemThepScreen() {
       });
 
       if (!response.ok) {
-        throw new Error('Server phản hồi lỗi!');
+        throw new Error('Máy chủ phản hồi lỗi hoặc đang bận băm thép!');
       }
 
       const data = await response.json();
@@ -165,10 +177,11 @@ export default function DemThepScreen() {
         if (Platform.OS === 'web') alert('Không nhận được dữ liệu số lượng từ server.');
         else Alert.alert('Lỗi', 'Không nhận được dữ liệu số lượng từ server.');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.log(error);
-      if (Platform.OS === 'web') alert('Lỗi kết nối. Anh hai xem lại Colab hoặc đường link Ngrok nhé!');
-      else Alert.alert('Lỗi kết nối', 'Không thể gửi ảnh lên server. Anh hai kiểm tra lại đường truyền nhé!');
+      const errorMsg = error.message || 'Không thể kết nối tới máy chủ. Anh hai kiểm tra lại link hoặc cấu hình mạng nhé!';
+      if (Platform.OS === 'web') alert(errorMsg);
+      else Alert.alert('Lỗi kết nối', errorMsg);
     } finally {
       setIsLoading(false);
     }
