@@ -22,12 +22,16 @@ type HistoryItem = {
 
 export default function DemThepScreen() {
   const { colors } = useTheme(); 
-  const mainScrollRef = useRef<ScrollView>(null); // Dùng để cuộn màn hình lên đầu
+  const mainScrollRef = useRef<ScrollView>(null); 
 
   const [image, setImage] = useState<string | null>(null);
   const [resultImage, setResultImage] = useState<string | null>(null);
   const [steelCount, setSteelCount] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Trạng thái nhắm mắt chớp nhoáng của Tèo
+  const [isSwitching, setIsSwitching] = useState(false);
+  
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
   // Chìa khóa vạn năng ép Reset Zoom
@@ -90,21 +94,26 @@ export default function DemThepScreen() {
     }
   };
 
-  // Hàm mở xem lại lịch sử
+  // Hàm mở xem lại lịch sử đã thêm tuyệt chiêu "tạm nhắm mắt"
   const viewHistoryItem = (item: HistoryItem) => {
-    setImage(item.originalImage);
-    setResultImage(item.processedImage || null);
-    setSteelCount(item.count);
+    // Ép nhắm mắt 50ms để giết cái ScrollView đang bị zoom
+    setIsSwitching(true);
     
-    // Đưa ảnh vào các chế độ (nếu lịch sử chỉ lưu 1 ảnh thì cho hiển thị ở mọi chế độ)
-    setResultImages({ v1: item.processedImage || null, v2: null, v3: null });
-    setCurrentMode(1);
-    
-    // Đổi chìa khóa để reset khung zoom
-    setViewerKey(Date.now().toString());
-    
-    // Cuộn vèo lên trên cùng để xem ảnh
-    mainScrollRef.current?.scrollTo({ y: 0, animated: true });
+    setTimeout(() => {
+      setImage(item.originalImage);
+      setResultImage(item.processedImage || null);
+      setSteelCount(item.count);
+      
+      setResultImages({ v1: item.processedImage || null, v2: null, v3: null });
+      setCurrentMode(1);
+      
+      setViewerKey(Date.now().toString());
+      
+      mainScrollRef.current?.scrollTo({ y: 0, animated: true });
+      
+      // Mở mắt ra với layout mới tinh
+      setIsSwitching(false);
+    }, 50);
   };
 
   const pickImage = async (useCamera: boolean) => {
@@ -143,7 +152,6 @@ export default function DemThepScreen() {
       setResultImages({ v1: null, v2: null, v3: null });
       setCurrentMode(1);
       
-      // Xoay chìa khóa reset zoom cho ảnh mới
       setViewerKey(Date.now().toString());
 
       uploadToServer(selectedUri);
@@ -210,7 +218,6 @@ export default function DemThepScreen() {
         
         saveToHistory(uri, fallbackUri, data.count);
 
-        // Đếm xong có ảnh mới -> Xoay chìa khóa reset zoom lần nữa cho chắc
         setViewerKey(Date.now().toString());
 
       } else if (data.error) {
@@ -251,14 +258,16 @@ export default function DemThepScreen() {
 
           {/* KHU VỰC HIỂN THỊ ẢNH */}
           <View style={[styles.imageContainer, { borderColor: colors.border, backgroundColor: colors.card }]}>
-            {isLoading ? (
+            {isLoading || isSwitching ? (
               <View style={styles.loadingBox}>
                 <ActivityIndicator size="large" color={colors.primary} />
-                <Text style={{ color: colors.text, marginTop: 10 }}>Đang nhờ AI đếm thử, chờ xíu...</Text>
+                <Text style={{ color: colors.text, marginTop: 10 }}>
+                  {isLoading ? 'Đang nhờ AI đếm thử, chờ xíu...' : 'Đang tải lại ảnh...'}
+                </Text>
               </View>
             ) : resultImage || image ? (
               <ScrollView
-                key={viewerKey} // Chìa khóa vạn năng diệt tận gốc lỗi lún góc
+                key={viewerKey} 
                 maximumZoomScale={5} 
                 minimumZoomScale={1} 
                 showsHorizontalScrollIndicator={false}
@@ -292,7 +301,7 @@ export default function DemThepScreen() {
           )}
 
           {/* BỘ 3 CÔNG TẮC ĐIỀU KHIỂN HIỂN THỊ */}
-          {steelCount !== null && !isLoading && (resultImages.v1 || resultImage) && (
+          {steelCount !== null && !isLoading && !isSwitching && (resultImages.v1 || resultImage) && (
             <View style={[styles.toggleContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <TouchableOpacity 
                 style={[styles.toggleBtn, currentMode === 1 && { backgroundColor: colors.primary }]}
@@ -355,7 +364,7 @@ export default function DemThepScreen() {
               <TouchableOpacity 
                 key={item.id} 
                 style={[styles.historyCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={() => viewHistoryItem(item)} // Bấm vào để xem lại
+                onPress={() => viewHistoryItem(item)} 
               >
                 <Image source={{ uri: item.processedImage || item.originalImage }} style={styles.historyThumb} />
                 <View style={styles.historyInfo}>
@@ -388,7 +397,6 @@ const styles = StyleSheet.create({
   placeholderBox: { alignItems: 'center', justifyContent: 'center' },
   loadingBox: { alignItems: 'center', justifyContent: 'center' },
   
-  // Style mới cho cục Tổng số cây nằm ngoài ảnh
   totalContainer: {
     alignItems: 'center',
     marginBottom: 15,
