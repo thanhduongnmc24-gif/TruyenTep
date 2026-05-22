@@ -20,6 +20,27 @@ type HistoryItem = {
   date: string;
 };
 
+// COMPONENT CON XỬ LÝ ZOOM ĐỘC LẬP - DIỆT TẬN GỐC LỖI KÉO GÓC
+function SteelImageViewer({ imageUri }: { imageUri: string }) {
+  return (
+    <ScrollView
+      maximumZoomScale={5}
+      minimumZoomScale={1}
+      showsHorizontalScrollIndicator={false}
+      showsVerticalScrollIndicator={false}
+      centerContent={true}
+      style={styles.viewerScroll}
+      contentContainerStyle={styles.viewerContainer}
+    >
+      <Image 
+        source={{ uri: imageUri }} 
+        style={styles.mainImage} 
+        resizeMode="contain" 
+      />
+    </ScrollView>
+  );
+}
+
 export default function DemThepScreen() {
   const { colors } = useTheme(); 
   const mainScrollRef = useRef<ScrollView>(null); 
@@ -28,11 +49,9 @@ export default function DemThepScreen() {
   const [resultImage, setResultImage] = useState<string | null>(null);
   const [steelCount, setSteelCount] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  
-  // Trạng thái chờ 1 giây theo đúng yêu cầu của anh hai
-  const [isPreparingFrame, setIsPreparingFrame] = useState(false);
-  
   const [history, setHistory] = useState<HistoryItem[]>([]);
+
+  // Chìa khóa reset trạng thái view ảnh
   const [viewerKey, setViewerKey] = useState<string>(Date.now().toString());
 
   const [resultImages, setResultImages] = useState<{v1: string | null, v2: string | null, v3: string | null}>({ v1: null, v2: null, v3: null });
@@ -91,40 +110,6 @@ export default function DemThepScreen() {
     }
   };
 
-  // --- LOGIC XỬ LÝ NÚT CHỤP ẢNH / THƯ VIỆN BỊ DELAY 1 GIÂY ---
-  const handlePickImagePress = (useCamera: boolean) => {
-    // 1. Ẩn toàn bộ ảnh và zoom ngay lập tức
-    setImage(null);
-    setResultImage(null);
-    setSteelCount(null);
-    setResultImages({ v1: null, v2: null, v3: null });
-    
-    // 2. Bật màn hình chuẩn bị khung
-    setIsPreparingFrame(true);
-
-    // 3. Chờ đúng 1 giây (1000ms) rồi mới cho chọn ảnh
-    setTimeout(() => {
-      setIsPreparingFrame(false);
-      pickImage(useCamera);
-    }, 1000);
-  };
-
-  // --- LOGIC XỬ LÝ LỊCH SỬ CŨNG BỊ DELAY 1 GIÂY ĐỂ ĐỒNG BỘ ---
-  const handleHistoryPress = (item: HistoryItem) => {
-    setImage(null);
-    setResultImage(null);
-    setSteelCount(null);
-    setResultImages({ v1: null, v2: null, v3: null });
-    setIsPreparingFrame(true);
-
-    mainScrollRef.current?.scrollTo({ y: 0, animated: true });
-
-    setTimeout(() => {
-      setIsPreparingFrame(false);
-      viewHistoryItem(item);
-    }, 1000);
-  };
-
   const viewHistoryItem = (item: HistoryItem) => {
     setImage(item.originalImage);
     setResultImage(item.processedImage || null);
@@ -132,7 +117,11 @@ export default function DemThepScreen() {
     
     setResultImages({ v1: item.processedImage || null, v2: null, v3: null });
     setCurrentMode(1);
-    setViewerKey(Date.now().toString());
+    
+    // Kích hoạt bẫy tiêu hủy bộ nhớ zoom cũ bằng key mới
+    setViewerKey('hist_' + item.id + '_' + Date.now());
+    
+    mainScrollRef.current?.scrollTo({ y: 0, animated: true });
   };
 
   const pickImage = async (useCamera: boolean) => {
@@ -166,7 +155,14 @@ export default function DemThepScreen() {
       }
 
       setImage(selectedUri);
-      setViewerKey(Date.now().toString());
+      setResultImage(null);
+      setSteelCount(null);
+      setResultImages({ v1: null, v2: null, v3: null });
+      setCurrentMode(1);
+      
+      // Xóa sạch hoàn toàn vết tích ảnh cũ trước khi gọi server
+      setViewerKey('pick_' + Date.now());
+
       uploadToServer(selectedUri);
     }
   };
@@ -230,7 +226,9 @@ export default function DemThepScreen() {
         if (fallbackUri) setResultImage(fallbackUri);
         
         saveToHistory(uri, fallbackUri, data.count);
-        setViewerKey(Date.now().toString());
+
+        // Đếm xong có kết quả AI về -> làm mới chìa khóa để reset góc ảnh
+        setViewerKey('ai_' + Date.now());
 
       } else if (data.error) {
         if (Platform.OS === 'web') alert(`Server AI báo lỗi: ${data.error}`);
@@ -256,12 +254,14 @@ export default function DemThepScreen() {
     return resultImage || image;
   };
 
+  // Mỗi lần đổi tab xem (Khung/Số) cũng reset lại zoom tránh lỗi lún hình
   const handleModeChange = (mode: number) => {
     setCurrentMode(mode);
-    setViewerKey(Date.now().toString());
+    setViewerKey('mode_' + mode + '_' + Date.now());
   };
 
   const bgColors = [colors.bg, colors.bg] as [string, string, ...string[]];
+  const displayUri = getDisplayImage();
 
   return (
     <LinearGradient colors={bgColors} style={{ flex: 1 }}>
@@ -270,38 +270,18 @@ export default function DemThepScreen() {
           
           <View style={styles.header}>
             <Text style={[styles.title, { color: colors.text }]}>Thần Nhãn Đếm Thép</Text>
-            <Text style={[styles.subtitle, { color: colors.subText }]}>Nguyễn Thanh Dương - HPDQ01016</Text>
+            <Text style={[styles.subtitle, { color: colors.subText }]}>Năng suất x100 lần</Text>
           </View>
 
-          {/* KHU VỰC HIỂN THỊ ẢNH */}
+          {/* KHU VỰC HIỂN THỊ ẢNH CỐ ĐỊNH KHUNG */}
           <View style={[styles.imageContainer, { borderColor: colors.border, backgroundColor: colors.card }]}>
-            {isPreparingFrame ? (
-              <View style={styles.loadingBox}>
-                <ActivityIndicator size="large" color={colors.primary} />
-                <Text style={{ color: colors.text, marginTop: 10 }}>Đang chuẩn bị khung mới...</Text>
-              </View>
-            ) : isLoading ? (
+            {isLoading ? (
               <View style={styles.loadingBox}>
                 <ActivityIndicator size="large" color={colors.primary} />
                 <Text style={{ color: colors.text, marginTop: 10 }}>Đang nhờ AI đếm thử, chờ xíu...</Text>
               </View>
-            ) : resultImage || image ? (
-              <ScrollView
-                key={viewerKey} 
-                maximumZoomScale={5} 
-                minimumZoomScale={1} 
-                showsHorizontalScrollIndicator={false}
-                showsVerticalScrollIndicator={false}
-                centerContent={true}
-                style={{ width: '100%', height: '100%' }}
-                contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center' }}
-              >
-                <Image 
-                  source={{ uri: getDisplayImage()! }} 
-                  style={{ width: '100%', height: '100%' }} 
-                  resizeMode="contain" 
-                />
-              </ScrollView>
+            ) : displayUri ? (
+              <SteelImageViewer key={viewerKey} imageUri={displayUri} />
             ) : (
               <View style={styles.placeholderBox}>
                 <Ionicons name="image-outline" size={60} color={colors.subText} />
@@ -311,7 +291,7 @@ export default function DemThepScreen() {
           </View>
 
           {/* KẾT QUẢ ĐẾM THÉP NẰM NGOÀI KHUNG ẢNH */}
-          {steelCount !== null && !isPreparingFrame && (
+          {steelCount !== null && (
             <View style={styles.totalContainer}>
               <Text style={[styles.totalText, { color: colors.primary }]}>
                 Tổng: {steelCount} cây
@@ -320,7 +300,7 @@ export default function DemThepScreen() {
           )}
 
           {/* BỘ 3 CÔNG TẮC ĐIỀU KHIỂN HIỂN THỊ */}
-          {steelCount !== null && !isLoading && !isPreparingFrame && (resultImages.v1 || resultImage) && (
+          {steelCount !== null && !isLoading && (resultImages.v1 || resultImage) && (
             <View style={[styles.toggleContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <TouchableOpacity 
                 style={[styles.toggleBtn, currentMode === 1 && { backgroundColor: colors.primary }]}
@@ -345,11 +325,11 @@ export default function DemThepScreen() {
             </View>
           )}
 
-          {/* NÚT THAO TÁC (GỌI HÀM DELAY 1 GIÂY MỚI TẠO) */}
+          {/* NÚT THAO TÁC */}
           <View style={styles.buttonRow}>
             <TouchableOpacity 
               style={[styles.actionBtn, { backgroundColor: colors.primary }]} 
-              onPress={() => handlePickImagePress(true)}
+              onPress={() => pickImage(true)}
             >
               <Ionicons name="camera" size={24} color="white" />
               <Text style={styles.btnText}>Chụp Ảnh</Text>
@@ -357,7 +337,7 @@ export default function DemThepScreen() {
 
             <TouchableOpacity 
               style={[styles.actionBtn, { backgroundColor: colors.iconBg }]} 
-              onPress={() => handlePickImagePress(false)}
+              onPress={() => pickImage(false)}
             >
               <Ionicons name="images" size={24} color={colors.text} />
               <Text style={[styles.btnText, { color: colors.text }]}>Thư Viện</Text>
@@ -383,7 +363,7 @@ export default function DemThepScreen() {
               <TouchableOpacity 
                 key={item.id} 
                 style={[styles.historyCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={() => handleHistoryPress(item)} 
+                onPress={() => viewHistoryItem(item)}
               >
                 <Image source={{ uri: item.processedImage || item.originalImage }} style={styles.historyThumb} />
                 <View style={styles.historyInfo}>
@@ -409,13 +389,18 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: 'bold' },
   subtitle: { fontSize: 14, marginTop: 4 },
   imageContainer: { 
-    width: '100%', height: 300, borderRadius: 16, 
+    width: '100%', height: 320, borderRadius: 16, 
     borderWidth: 1, overflow: 'hidden', marginBottom: 15,
     justifyContent: 'center', alignItems: 'center'
   },
   placeholderBox: { alignItems: 'center', justifyContent: 'center' },
   loadingBox: { alignItems: 'center', justifyContent: 'center' },
   
+  // Định vị cứng khung Zoom độc lập chống tràn tọa độ
+  viewerScroll: { width: '100%', height: '100%' },
+  viewerContainer: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
+  mainImage: { width: '100%', height: '100%' },
+
   totalContainer: {
     alignItems: 'center',
     marginBottom: 15,
