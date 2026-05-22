@@ -23,16 +23,18 @@ type HistoryItem = {
 export default function DemThepScreen() {
   const { colors } = useTheme(); 
   const mainScrollRef = useRef<ScrollView>(null); 
-  const imageScrollRef = useRef<ScrollView>(null); // Thêm Ref để chỉ điểm ScrollView chứa ảnh
 
   const [image, setImage] = useState<string | null>(null);
   const [resultImage, setResultImage] = useState<string | null>(null);
   const [steelCount, setSteelCount] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   
+  // Tuyệt chiêu tối ưu: Khóa zoom cho đến khi ảnh thực sự sẵn sàng
+  const [isImageReady, setIsImageReady] = useState(false);
+  
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
-  // Vẫn giữ chìa khóa reset để dọn dẹp cache zoom
+  // Chìa khóa vạn năng tạo khung mới
   const [viewerKey, setViewerKey] = useState<string>(Date.now().toString());
 
   const [resultImages, setResultImages] = useState<{v1: string | null, v2: string | null, v3: string | null}>({ v1: null, v2: null, v3: null });
@@ -92,20 +94,16 @@ export default function DemThepScreen() {
   };
 
   const viewHistoryItem = (item: HistoryItem) => {
+    setIsImageReady(false); // Trói tay không cho zoom
     setImage(item.originalImage);
     setResultImage(item.processedImage || null);
     setSteelCount(item.count);
+    
     setResultImages({ v1: item.processedImage || null, v2: null, v3: null });
     setCurrentMode(1);
     
     setViewerKey(Date.now().toString());
-    
     mainScrollRef.current?.scrollTo({ y: 0, animated: true });
-    
-    // Đóng cọc tọa độ bằng lệnh trực tiếp
-    setTimeout(() => {
-      imageScrollRef.current?.scrollTo({ x: 0, y: 0, animated: false });
-    }, 10);
   };
 
   const pickImage = async (useCamera: boolean) => {
@@ -138,6 +136,7 @@ export default function DemThepScreen() {
         console.log("Lỗi ép cân ảnh:", e);
       }
 
+      setIsImageReady(false); // Trói tay zoom
       setImage(selectedUri);
       setResultImage(null);
       setSteelCount(null);
@@ -145,10 +144,6 @@ export default function DemThepScreen() {
       setCurrentMode(1);
       
       setViewerKey(Date.now().toString());
-      setTimeout(() => {
-        imageScrollRef.current?.scrollTo({ x: 0, y: 0, animated: false });
-      }, 10);
-
       uploadToServer(selectedUri);
     }
   };
@@ -212,11 +207,9 @@ export default function DemThepScreen() {
         if (fallbackUri) setResultImage(fallbackUri);
         
         saveToHistory(uri, fallbackUri, data.count);
+        
+        setIsImageReady(false); // Trói tay zoom lúc chuyển qua ảnh đã xử lý
         setViewerKey(Date.now().toString());
-
-        setTimeout(() => {
-          imageScrollRef.current?.scrollTo({ x: 0, y: 0, animated: false });
-        }, 10);
 
       } else if (data.error) {
         if (Platform.OS === 'web') alert(`Server AI báo lỗi: ${data.error}`);
@@ -242,6 +235,13 @@ export default function DemThepScreen() {
     return resultImage || image;
   };
 
+  // Đổi mode cũng phải khóa zoom một chút để nó vẽ lại từ đầu
+  const handleModeChange = (mode: number) => {
+    setIsImageReady(false);
+    setCurrentMode(mode);
+    setViewerKey(Date.now().toString());
+  };
+
   const bgColors = [colors.bg, colors.bg] as [string, string, ...string[]];
 
   return (
@@ -263,23 +263,24 @@ export default function DemThepScreen() {
               </View>
             ) : resultImage || image ? (
               <ScrollView
-                ref={imageScrollRef}
                 key={viewerKey} 
-                maximumZoomScale={5} 
+                // CHỐT CHẶN: Chỉ mở zoom khi ảnh đã load xong 100%
+                maximumZoomScale={isImageReady ? 5 : 1} 
                 minimumZoomScale={1} 
                 showsHorizontalScrollIndicator={false}
                 showsVerticalScrollIndicator={false}
                 centerContent={true}
-                contentOffset={{ x: 0, y: 0 }} // ĐÓNG CỌC TỌA ĐỘ BẮT ĐẦU TẠI ĐÂY
+                contentOffset={{ x: 0, y: 0 }} 
                 style={{ width: '100%', height: '100%' }}
                 contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center' }}
               >
-                {/* BỌC THÊM VIEW ĐỂ ÉP CĂN GIỮA VÀ CỐ ĐỊNH KÍCH THƯỚC */}
                 <View style={{ width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}>
                   <Image 
                     source={{ uri: getDisplayImage()! }} 
                     style={{ width: '100%', height: '100%' }} 
                     resizeMode="contain" 
+                    // THẢ XÍCH ZOOM KHI ẢNH ĐÃ NẰM GỌN TRONG KHUNG
+                    onLoadEnd={() => setIsImageReady(true)}
                   />
                 </View>
               </ScrollView>
@@ -305,21 +306,21 @@ export default function DemThepScreen() {
             <View style={[styles.toggleContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <TouchableOpacity 
                 style={[styles.toggleBtn, currentMode === 1 && { backgroundColor: colors.primary }]}
-                onPress={() => setCurrentMode(1)}
+                onPress={() => handleModeChange(1)}
               >
                 <Text style={[styles.toggleText, currentMode === 1 ? { color: 'white' } : { color: colors.subText }]}>Chỉ Khung</Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
                 style={[styles.toggleBtn, currentMode === 2 && { backgroundColor: colors.primary }]}
-                onPress={() => setCurrentMode(2)}
+                onPress={() => handleModeChange(2)}
               >
                 <Text style={[styles.toggleText, currentMode === 2 ? { color: 'white' } : { color: colors.subText }]}>Khung + Số</Text>
               </TouchableOpacity>
 
               <TouchableOpacity 
                 style={[styles.toggleBtn, currentMode === 3 && { backgroundColor: colors.primary }]}
-                onPress={() => setCurrentMode(3)}
+                onPress={() => handleModeChange(3)}
               >
                 <Text style={[styles.toggleText, currentMode === 3 ? { color: 'white' } : { color: colors.subText }]}>Chỉ Số</Text>
               </TouchableOpacity>
