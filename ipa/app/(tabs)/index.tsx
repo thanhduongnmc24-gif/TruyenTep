@@ -29,15 +29,14 @@ export default function DemThepScreen() {
   const [steelCount, setSteelCount] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   
-  // Trạng thái nhắm mắt chớp nhoáng của Tèo
-  const [isSwitching, setIsSwitching] = useState(false);
+  // Cờ báo hiệu đang thực hiện reset cực mạnh
+  const [isHardResetting, setIsHardResetting] = useState(false);
   
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
-  // Chìa khóa vạn năng ép Reset Zoom
+  // Vẫn giữ lại chìa khóa vạn năng cho chắc ăn
   const [viewerKey, setViewerKey] = useState<string>(Date.now().toString());
 
-  // 3 phiên bản ảnh cho 3 công tắc
   const [resultImages, setResultImages] = useState<{v1: string | null, v2: string | null, v3: string | null}>({ v1: null, v2: null, v3: null });
   const [currentMode, setCurrentMode] = useState<number>(1);
 
@@ -94,12 +93,20 @@ export default function DemThepScreen() {
     }
   };
 
-  // Hàm mở xem lại lịch sử đã thêm tuyệt chiêu "tạm nhắm mắt"
   const viewHistoryItem = (item: HistoryItem) => {
-    // Ép nhắm mắt 50ms để giết cái ScrollView đang bị zoom
-    setIsSwitching(true);
+    // 1. Rút củi: Xóa sạch dữ liệu hiển thị hiện tại và bật cờ loading
+    setIsHardResetting(true);
+    setImage(null);
+    setResultImage(null);
+    setResultImages({ v1: null, v2: null, v3: null });
+    setSteelCount(null);
     
+    // Cuộn lên đầu ngay lập tức
+    mainScrollRef.current?.scrollTo({ y: 0, animated: true });
+    
+    // 2. Chờ 100ms để React Native dọn rác cái ScrollView cũ
     setTimeout(() => {
+      // 3. Bơm nước mới: Trả lại dữ liệu từ lịch sử
       setImage(item.originalImage);
       setResultImage(item.processedImage || null);
       setSteelCount(item.count);
@@ -107,13 +114,12 @@ export default function DemThepScreen() {
       setResultImages({ v1: item.processedImage || null, v2: null, v3: null });
       setCurrentMode(1);
       
+      // Xoay chìa khóa lần nữa
       setViewerKey(Date.now().toString());
       
-      mainScrollRef.current?.scrollTo({ y: 0, animated: true });
-      
-      // Mở mắt ra với layout mới tinh
-      setIsSwitching(false);
-    }, 50);
+      // Tắt cờ loading
+      setIsHardResetting(false);
+    }, 100);
   };
 
   const pickImage = async (useCamera: boolean) => {
@@ -146,15 +152,20 @@ export default function DemThepScreen() {
         console.log("Lỗi ép cân ảnh:", e);
       }
 
-      setImage(selectedUri);
+      // Rút củi trước khi đếm ảnh mới
+      setIsHardResetting(true);
+      setImage(null);
       setResultImage(null);
       setSteelCount(null);
       setResultImages({ v1: null, v2: null, v3: null });
       setCurrentMode(1);
       
-      setViewerKey(Date.now().toString());
-
-      uploadToServer(selectedUri);
+      setTimeout(() => {
+        setImage(selectedUri);
+        setViewerKey(Date.now().toString());
+        setIsHardResetting(false);
+        uploadToServer(selectedUri);
+      }, 100);
     }
   };
 
@@ -205,20 +216,28 @@ export default function DemThepScreen() {
       const data = await response.json();
       
       if (data.count !== undefined) {
-        setSteelCount(data.count);
+        // Tương tự, nếu server trả kết quả về, ép reset một nhát nữa cho chắc
+        setIsHardResetting(true);
+        setImage(null);
         
-        const uri1 = data.image_v1 ? `data:image/jpeg;base64,${data.image_v1}` : null;
-        const uri2 = data.image_v2 ? `data:image/jpeg;base64,${data.image_v2}` : null;
-        const uri3 = data.image_v3 ? `data:image/jpeg;base64,${data.image_v3}` : null;
-        
-        setResultImages({ v1: uri1, v2: uri2, v3: uri3 });
-        
-        const fallbackUri = uri1 || (data.image_base64 ? `data:image/jpeg;base64,${data.image_base64}` : undefined);
-        if (fallbackUri) setResultImage(fallbackUri);
-        
-        saveToHistory(uri, fallbackUri, data.count);
-
-        setViewerKey(Date.now().toString());
+        setTimeout(() => {
+          setSteelCount(data.count);
+          
+          const uri1 = data.image_v1 ? `data:image/jpeg;base64,${data.image_v1}` : null;
+          const uri2 = data.image_v2 ? `data:image/jpeg;base64,${data.image_v2}` : null;
+          const uri3 = data.image_v3 ? `data:image/jpeg;base64,${data.image_v3}` : null;
+          
+          setResultImages({ v1: uri1, v2: uri2, v3: uri3 });
+          
+          const fallbackUri = uri1 || (data.image_base64 ? `data:image/jpeg;base64,${data.image_base64}` : undefined);
+          if (fallbackUri) setResultImage(fallbackUri);
+          
+          setImage(uri); // Set lại ảnh gốc nếu cần
+          
+          saveToHistory(uri, fallbackUri, data.count);
+          setViewerKey(Date.now().toString());
+          setIsHardResetting(false);
+        }, 100);
 
       } else if (data.error) {
         if (Platform.OS === 'web') alert(`Server AI báo lỗi: ${data.error}`);
@@ -258,11 +277,11 @@ export default function DemThepScreen() {
 
           {/* KHU VỰC HIỂN THỊ ẢNH */}
           <View style={[styles.imageContainer, { borderColor: colors.border, backgroundColor: colors.card }]}>
-            {isLoading || isSwitching ? (
+            {isLoading || isHardResetting ? (
               <View style={styles.loadingBox}>
                 <ActivityIndicator size="large" color={colors.primary} />
                 <Text style={{ color: colors.text, marginTop: 10 }}>
-                  {isLoading ? 'Đang nhờ AI đếm thử, chờ xíu...' : 'Đang tải lại ảnh...'}
+                  {isLoading ? 'Đang nhờ AI đếm thử, chờ xíu...' : 'Đang chuẩn bị khung ngắm...'}
                 </Text>
               </View>
             ) : resultImage || image ? (
@@ -292,7 +311,7 @@ export default function DemThepScreen() {
           </View>
 
           {/* KẾT QUẢ ĐẾM THÉP NẰM NGOÀI KHUNG ẢNH */}
-          {steelCount !== null && (
+          {steelCount !== null && !isHardResetting && (
             <View style={styles.totalContainer}>
               <Text style={[styles.totalText, { color: colors.primary }]}>
                 Tổng: {steelCount} cây
@@ -301,7 +320,7 @@ export default function DemThepScreen() {
           )}
 
           {/* BỘ 3 CÔNG TẮC ĐIỀU KHIỂN HIỂN THỊ */}
-          {steelCount !== null && !isLoading && !isSwitching && (resultImages.v1 || resultImage) && (
+          {steelCount !== null && !isLoading && !isHardResetting && (resultImages.v1 || resultImage) && (
             <View style={[styles.toggleContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <TouchableOpacity 
                 style={[styles.toggleBtn, currentMode === 1 && { backgroundColor: colors.primary }]}
