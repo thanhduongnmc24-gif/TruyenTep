@@ -23,18 +23,16 @@ type HistoryItem = {
 export default function DemThepScreen() {
   const { colors } = useTheme(); 
   const mainScrollRef = useRef<ScrollView>(null); 
+  const imageScrollRef = useRef<ScrollView>(null); // Thêm Ref để chỉ điểm ScrollView chứa ảnh
 
   const [image, setImage] = useState<string | null>(null);
   const [resultImage, setResultImage] = useState<string | null>(null);
   const [steelCount, setSteelCount] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   
-  // Cờ báo hiệu đang thực hiện reset cực mạnh
-  const [isHardResetting, setIsHardResetting] = useState(false);
-  
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
-  // Vẫn giữ lại chìa khóa vạn năng cho chắc ăn
+  // Vẫn giữ chìa khóa reset để dọn dẹp cache zoom
   const [viewerKey, setViewerKey] = useState<string>(Date.now().toString());
 
   const [resultImages, setResultImages] = useState<{v1: string | null, v2: string | null, v3: string | null}>({ v1: null, v2: null, v3: null });
@@ -94,32 +92,20 @@ export default function DemThepScreen() {
   };
 
   const viewHistoryItem = (item: HistoryItem) => {
-    // 1. Rút củi: Xóa sạch dữ liệu hiển thị hiện tại và bật cờ loading
-    setIsHardResetting(true);
-    setImage(null);
-    setResultImage(null);
-    setResultImages({ v1: null, v2: null, v3: null });
-    setSteelCount(null);
+    setImage(item.originalImage);
+    setResultImage(item.processedImage || null);
+    setSteelCount(item.count);
+    setResultImages({ v1: item.processedImage || null, v2: null, v3: null });
+    setCurrentMode(1);
     
-    // Cuộn lên đầu ngay lập tức
+    setViewerKey(Date.now().toString());
+    
     mainScrollRef.current?.scrollTo({ y: 0, animated: true });
     
-    // 2. Chờ 100ms để React Native dọn rác cái ScrollView cũ
+    // Đóng cọc tọa độ bằng lệnh trực tiếp
     setTimeout(() => {
-      // 3. Bơm nước mới: Trả lại dữ liệu từ lịch sử
-      setImage(item.originalImage);
-      setResultImage(item.processedImage || null);
-      setSteelCount(item.count);
-      
-      setResultImages({ v1: item.processedImage || null, v2: null, v3: null });
-      setCurrentMode(1);
-      
-      // Xoay chìa khóa lần nữa
-      setViewerKey(Date.now().toString());
-      
-      // Tắt cờ loading
-      setIsHardResetting(false);
-    }, 100);
+      imageScrollRef.current?.scrollTo({ x: 0, y: 0, animated: false });
+    }, 10);
   };
 
   const pickImage = async (useCamera: boolean) => {
@@ -152,20 +138,18 @@ export default function DemThepScreen() {
         console.log("Lỗi ép cân ảnh:", e);
       }
 
-      // Rút củi trước khi đếm ảnh mới
-      setIsHardResetting(true);
-      setImage(null);
+      setImage(selectedUri);
       setResultImage(null);
       setSteelCount(null);
       setResultImages({ v1: null, v2: null, v3: null });
       setCurrentMode(1);
       
+      setViewerKey(Date.now().toString());
       setTimeout(() => {
-        setImage(selectedUri);
-        setViewerKey(Date.now().toString());
-        setIsHardResetting(false);
-        uploadToServer(selectedUri);
-      }, 100);
+        imageScrollRef.current?.scrollTo({ x: 0, y: 0, animated: false });
+      }, 10);
+
+      uploadToServer(selectedUri);
     }
   };
 
@@ -216,28 +200,23 @@ export default function DemThepScreen() {
       const data = await response.json();
       
       if (data.count !== undefined) {
-        // Tương tự, nếu server trả kết quả về, ép reset một nhát nữa cho chắc
-        setIsHardResetting(true);
-        setImage(null);
+        setSteelCount(data.count);
         
+        const uri1 = data.image_v1 ? `data:image/jpeg;base64,${data.image_v1}` : null;
+        const uri2 = data.image_v2 ? `data:image/jpeg;base64,${data.image_v2}` : null;
+        const uri3 = data.image_v3 ? `data:image/jpeg;base64,${data.image_v3}` : null;
+        
+        setResultImages({ v1: uri1, v2: uri2, v3: uri3 });
+        
+        const fallbackUri = uri1 || (data.image_base64 ? `data:image/jpeg;base64,${data.image_base64}` : undefined);
+        if (fallbackUri) setResultImage(fallbackUri);
+        
+        saveToHistory(uri, fallbackUri, data.count);
+        setViewerKey(Date.now().toString());
+
         setTimeout(() => {
-          setSteelCount(data.count);
-          
-          const uri1 = data.image_v1 ? `data:image/jpeg;base64,${data.image_v1}` : null;
-          const uri2 = data.image_v2 ? `data:image/jpeg;base64,${data.image_v2}` : null;
-          const uri3 = data.image_v3 ? `data:image/jpeg;base64,${data.image_v3}` : null;
-          
-          setResultImages({ v1: uri1, v2: uri2, v3: uri3 });
-          
-          const fallbackUri = uri1 || (data.image_base64 ? `data:image/jpeg;base64,${data.image_base64}` : undefined);
-          if (fallbackUri) setResultImage(fallbackUri);
-          
-          setImage(uri); // Set lại ảnh gốc nếu cần
-          
-          saveToHistory(uri, fallbackUri, data.count);
-          setViewerKey(Date.now().toString());
-          setIsHardResetting(false);
-        }, 100);
+          imageScrollRef.current?.scrollTo({ x: 0, y: 0, animated: false });
+        }, 10);
 
       } else if (data.error) {
         if (Platform.OS === 'web') alert(`Server AI báo lỗi: ${data.error}`);
@@ -277,30 +256,32 @@ export default function DemThepScreen() {
 
           {/* KHU VỰC HIỂN THỊ ẢNH */}
           <View style={[styles.imageContainer, { borderColor: colors.border, backgroundColor: colors.card }]}>
-            {isLoading || isHardResetting ? (
+            {isLoading ? (
               <View style={styles.loadingBox}>
                 <ActivityIndicator size="large" color={colors.primary} />
-                <Text style={{ color: colors.text, marginTop: 10 }}>
-                  {isLoading ? 'Đang nhờ AI đếm thử, chờ xíu...' : 'Đang chuẩn bị khung ngắm...'}
-                </Text>
+                <Text style={{ color: colors.text, marginTop: 10 }}>Đang nhờ AI đếm thử, chờ xíu...</Text>
               </View>
             ) : resultImage || image ? (
               <ScrollView
+                ref={imageScrollRef}
                 key={viewerKey} 
                 maximumZoomScale={5} 
                 minimumZoomScale={1} 
                 showsHorizontalScrollIndicator={false}
                 showsVerticalScrollIndicator={false}
                 centerContent={true}
+                contentOffset={{ x: 0, y: 0 }} // ĐÓNG CỌC TỌA ĐỘ BẮT ĐẦU TẠI ĐÂY
                 style={{ width: '100%', height: '100%' }}
                 contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center' }}
               >
-                <Image 
-                  key={viewerKey + '_img'}
-                  source={{ uri: getDisplayImage()! }} 
-                  style={{ width: '100%', height: '100%' }} 
-                  resizeMode="contain" 
-                />
+                {/* BỌC THÊM VIEW ĐỂ ÉP CĂN GIỮA VÀ CỐ ĐỊNH KÍCH THƯỚC */}
+                <View style={{ width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}>
+                  <Image 
+                    source={{ uri: getDisplayImage()! }} 
+                    style={{ width: '100%', height: '100%' }} 
+                    resizeMode="contain" 
+                  />
+                </View>
               </ScrollView>
             ) : (
               <View style={styles.placeholderBox}>
@@ -311,7 +292,7 @@ export default function DemThepScreen() {
           </View>
 
           {/* KẾT QUẢ ĐẾM THÉP NẰM NGOÀI KHUNG ẢNH */}
-          {steelCount !== null && !isHardResetting && (
+          {steelCount !== null && (
             <View style={styles.totalContainer}>
               <Text style={[styles.totalText, { color: colors.primary }]}>
                 Tổng: {steelCount} cây
@@ -320,7 +301,7 @@ export default function DemThepScreen() {
           )}
 
           {/* BỘ 3 CÔNG TẮC ĐIỀU KHIỂN HIỂN THỊ */}
-          {steelCount !== null && !isLoading && !isHardResetting && (resultImages.v1 || resultImage) && (
+          {steelCount !== null && !isLoading && (resultImages.v1 || resultImage) && (
             <View style={[styles.toggleContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <TouchableOpacity 
                 style={[styles.toggleBtn, currentMode === 1 && { backgroundColor: colors.primary }]}
