@@ -30,7 +30,7 @@ type BatchItem = {
   status: 'loading' | 'success' | 'error' | 'idle';
 };
 
-// COMPONENT CON XỬ LÝ ZOOM ĐỘC LẬP - TÍCH HỢP GÕ 2 CÁI RESET
+// COMPONENT CON XỬ LÝ ZOOM ĐỘC LẬP - DIỆT TẬN GỐC LỖI CANH GÓC
 function SteelImageViewer({ imageUri }: { imageUri: string }) {
   const [resetKey, setResetKey] = useState(0);
   const lastTap = useRef(0);
@@ -57,16 +57,13 @@ function SteelImageViewer({ imageUri }: { imageUri: string }) {
       minimumZoomScale={1}
       showsHorizontalScrollIndicator={false}
       showsVerticalScrollIndicator={false}
-      centerContent={true}
+      // [QUAN TRỌNG] Bỏ thuộc tính centerContent={true} để chống lỗi bị kéo tuột xuống góc
       style={styles.viewerScroll}
+      // Dùng flexbox canh giữa trongcontentContainerStyle thay cho centerContent
       contentContainerStyle={styles.viewerContainer}
     >
       <TouchableWithoutFeedback onPress={handleDoubleTap}>
-        <Image 
-          source={{ uri: imageUri }} 
-          style={styles.mainImage} 
-          resizeMode="contain" 
-        />
+        <Image source={{ uri: imageUri }} style={styles.mainImage} resizeMode="contain" />
       </TouchableWithoutFeedback>
     </ScrollView>
   );
@@ -308,6 +305,7 @@ export default function DemThepScreen() {
           
           <View style={styles.header}>
             <Text style={[styles.title, { color: colors.text }]}>Thần Nhãn Đếm Thép</Text>
+            {/* Đổi tên anh hai và mã số xịn */}
             <Text style={[styles.subtitle, { color: colors.subText }]}>Nguyễn Thanh Dương - HPDQ01016</Text>
           </View>
 
@@ -316,7 +314,8 @@ export default function DemThepScreen() {
             {isCurrentlyLoading ? (
               <View style={styles.loadingBox}>
                 <ActivityIndicator size="large" color={colors.primary} />
-                <Text style={{ color: colors.text, marginTop: 10 }}>Đang nhờ AI đếm thép, chờ xíu nhé...</Text>
+                {/* Đổi chữ băm thép thành chữ đếm thép thân thiện */}
+                <Text style={{ color: colors.text, marginTop: 10, textAlign: 'center' }}>Đang nhờ AI đếm thép, chờ xíu nhé...</Text>
               </View>
             ) : displayUri ? (
               <SteelImageViewer key={viewerKey} imageUri={displayUri} />
@@ -412,7 +411,7 @@ export default function DemThepScreen() {
 
           <View style={styles.separator} />
 
-          {/* LỊCH SỬ ĐẾM */}
+          {/* LỊCH SỬ ĐẾM GẦN ĐÂY */}
           <View style={styles.historyHeader}>
             <Text style={[styles.historyTitle, { color: colors.text }]}>Lịch Sử Đếm Gần Đây</Text>
             {history.length > 0 && (
@@ -460,10 +459,11 @@ const styles = StyleSheet.create({
   loadingBox: { alignItems: 'center', justifyContent: 'center' },
   
   viewerScroll: { width: '100%', height: '100%' },
+  // Dùng flexbox canh giữa trong contentContainerStyle để thay thế centerContent={true}
   viewerContainer: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
   mainImage: { width: '100%', height: '100%' },
 
-  // --- STYLE CHO THANH THUMBNAIL (QUẸT ẢNH MỚI) ---
+  // STYLE CHO THANH THUMBNAIL (QUẸT ẢNH MỚI)
   thumbnailContainer: {
       marginBottom: 15,
       height: 70,
