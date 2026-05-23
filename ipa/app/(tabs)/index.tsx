@@ -30,7 +30,7 @@ type BatchItem = {
   status: 'loading' | 'success' | 'error' | 'idle';
 };
 
-// COMPONENT CON XỬ LÝ ZOOM ĐỘC LẬP - DIỆT TẬN GỐC LỖI CANH GÓC
+// COMPONENT CON XỬ LÝ ZOOM ĐỘC LẬP - KHÓA CHẶT ẢNH TRONG KHUNG
 function SteelImageViewer({ imageUri }: { imageUri: string }) {
   const [resetKey, setResetKey] = useState(0);
   const lastTap = useRef(0);
@@ -57,9 +57,15 @@ function SteelImageViewer({ imageUri }: { imageUri: string }) {
       minimumZoomScale={1}
       showsHorizontalScrollIndicator={false}
       showsVerticalScrollIndicator={false}
-      // [QUAN TRỌNG] Bỏ thuộc tính centerContent={true} để chống lỗi bị kéo tuột xuống góc
+      
+      // --- [BỘ CÔNG TẮC KHÓA CHẶT ẢNH VÀO KHUNG CỦA TÈO] ---
+      bounces={false} 
+      bouncesZoom={false}
+      alwaysBounceVertical={false}
+      alwaysBounceHorizontal={false}
+      // ---------------------------------------------------
+
       style={styles.viewerScroll}
-      // Dùng flexbox canh giữa trongcontentContainerStyle thay cho centerContent
       contentContainerStyle={styles.viewerContainer}
     >
       <TouchableWithoutFeedback onPress={handleDoubleTap}>
@@ -314,7 +320,6 @@ export default function DemThepScreen() {
             {isCurrentlyLoading ? (
               <View style={styles.loadingBox}>
                 <ActivityIndicator size="large" color={colors.primary} />
-                {/* Đổi chữ băm thép thành chữ đếm thép thân thiện */}
                 <Text style={{ color: colors.text, marginTop: 10, textAlign: 'center' }}>Đang nhờ AI đếm thép, chờ xíu nhé...</Text>
               </View>
             ) : displayUri ? (
