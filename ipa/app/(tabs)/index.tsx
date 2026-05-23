@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, ScrollView, 
-  Image, ActivityIndicator, Alert, Platform 
+  Image, ActivityIndicator, Alert, Platform, TouchableWithoutFeedback 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -30,10 +30,29 @@ type BatchItem = {
   status: 'loading' | 'success' | 'error' | 'idle';
 };
 
-// COMPONENT CON XỬ LÝ ZOOM ĐỘC LẬP
+// COMPONENT CON XỬ LÝ ZOOM ĐỘC LẬP - TÍCH HỢP GÕ 2 CÁI RESET
 function SteelImageViewer({ imageUri }: { imageUri: string }) {
+  const [resetKey, setResetKey] = useState(0);
+  const lastTap = useRef(0);
+
+  // Cảm biến 1: Tự động reset đưa tọa độ về 0,0 ngay khi load ảnh bó thép mới
+  useEffect(() => {
+    setResetKey(prev => prev + 1);
+  }, [imageUri]);
+
+  // Cảm biến 2: Bắt nhịp gõ 2 cái (Double Tap) của anh hai
+  const handleDoubleTap = () => {
+    const now = Date.now();
+    if (now - lastTap.current < 300) { 
+      // Nếu gõ 2 nhịp cách nhau dưới 300 mili-giây -> Đập đi xây lại khung ảnh
+      setResetKey(prev => prev + 1); 
+    }
+    lastTap.current = now;
+  };
+
   return (
     <ScrollView
+      key={resetKey} // Chìa khóa vàng ép tọa độ và độ zoom về như thuở ban đầu
       maximumZoomScale={5}
       minimumZoomScale={1}
       showsHorizontalScrollIndicator={false}
@@ -42,7 +61,13 @@ function SteelImageViewer({ imageUri }: { imageUri: string }) {
       style={styles.viewerScroll}
       contentContainerStyle={styles.viewerContainer}
     >
-      <Image source={{ uri: imageUri }} style={styles.mainImage} resizeMode="contain" />
+      <TouchableWithoutFeedback onPress={handleDoubleTap}>
+        <Image 
+          source={{ uri: imageUri }} 
+          style={styles.mainImage} 
+          resizeMode="contain" 
+        />
+      </TouchableWithoutFeedback>
     </ScrollView>
   );
 }
@@ -51,7 +76,7 @@ export default function DemThepScreen() {
   const { colors } = useTheme(); 
   const mainScrollRef = useRef<ScrollView>(null); 
 
-  // Thay thế state đơn lẻ bằng danh sách Batch (để chứa nhiều ảnh)
+  // Danh sách Batch (chứa nhiều ảnh)
   const [batch, setBatch] = useState<BatchItem[]>([]);
   const [activeIndex, setActiveIndex] = useState<number>(0);
   
@@ -135,7 +160,7 @@ export default function DemThepScreen() {
   const pickImage = async (useCamera: boolean) => {
     const options: ImagePicker.ImagePickerOptions = {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: false, // Bắt buộc false thì iOS mới cho chọn nhiều ảnh
+      allowsEditing: false, 
       quality: 1,
       allowsMultipleSelection: !useCamera, // NẾU LÀ THƯ VIỆN THÌ MỞ CHỌN NHIỀU
       selectionLimit: 10, // Max 10 ảnh 1 lúc
@@ -303,7 +328,7 @@ export default function DemThepScreen() {
             )}
           </View>
 
-          {/* [MỚI] DẢI ẢNH THU NHỎ QUẸT NGANG KHI CHỌN NHIỀU ẢNH */}
+          {/* DẢI ẢNH THU NHỎ QUẸT NGANG KHI CHỌN NHIỀU ẢNH */}
           {batch.length > 1 && (
               <View style={styles.thumbnailContainer}>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
