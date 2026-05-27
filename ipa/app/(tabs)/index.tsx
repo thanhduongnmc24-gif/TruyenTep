@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, ScrollView, 
-  Image, ActivityIndicator, Alert, Platform, TouchableWithoutFeedback 
+  Image, ActivityIndicator, Alert, Platform, TouchableWithoutFeedback, TextInput, Dimensions 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,6 +11,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { format } from 'date-fns';
+
+// Tính toán kích thước màn hình
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+// Ép chiều cao khung làm việc (ảnh + tool) chiếm 60% màn hình
+const WORKSPACE_HEIGHT = SCREEN_HEIGHT * 0.6; 
 
 type HistoryItem = {
   id: string;
@@ -29,18 +34,15 @@ type BatchItem = {
   status: 'loading' | 'success' | 'error' | 'idle';
 };
 
-// COMPONENT CON XỬ LÝ ZOOM ĐỘC LẬP - CÁCH MẠNG MỚI DIỆT TẬN GỐC LỖI LÚN GÓC
-// COMPONENT CON XỬ LÝ ZOOM ĐỘC LẬP - BẢN FIX CRASH VÀ KHÓA CHẶT KHUNG
+// COMPONENT CON XỬ LÝ ZOOM ĐỘC LẬP - BẢN HOÀN HẢO (CHỐNG CRASH + CHỐNG LÚN)
 function SteelImageViewer({ imageUri }: { imageUri: string }) {
   const [resetKey, setResetKey] = useState(0);
   const lastTap = useRef(0);
 
-  // Cảm biến 1: Khi đổi sang bó thép khác -> Reset khung đưa ảnh về gốc
   useEffect(() => {
     setResetKey(prev => prev + 1);
   }, [imageUri]);
 
-  // Cảm biến 2: Bắt nhịp gõ 2 cái (Double Tap) của anh hai
   const handleDoubleTap = () => {
     const now = Date.now();
     if (now - lastTap.current < 300) { 
@@ -51,21 +53,19 @@ function SteelImageViewer({ imageUri }: { imageUri: string }) {
 
   return (
     <ScrollView
-      key={resetKey} // Chìa khóa vàng đập đi xây lại siêu mượt mà không crash
+      key={resetKey} 
       maximumZoomScale={5}
       minimumZoomScale={1}
       showsHorizontalScrollIndicator={false}
       showsVerticalScrollIndicator={false}
       centerContent={true}
       
-      // --- [BỘ CÔNG TẮC GỘP: VỪA KHÓA KHUNG VỪA CHỐNG LÚN ẢNH] ---
       bounces={false} 
       bouncesZoom={false}
       alwaysBounceVertical={false}
       alwaysBounceHorizontal={false}
       contentInsetAdjustmentBehavior="never" 
       automaticallyAdjustContentInsets={false}
-      // -----------------------------------------------------------
 
       style={styles.viewerScroll}
       contentContainerStyle={styles.viewerContainer}
@@ -76,6 +76,7 @@ function SteelImageViewer({ imageUri }: { imageUri: string }) {
     </ScrollView>
   );
 }
+
 export default function DemThepScreen() {
   const { colors } = useTheme(); 
   const mainScrollRef = useRef<ScrollView>(null); 
@@ -84,6 +85,11 @@ export default function DemThepScreen() {
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [currentMode, setCurrentMode] = useState<number>(1);
+
+  // --- CÁC THAM SỐ CẤU HÌNH AI ---
+  const [minConf, setMinConf] = useState<string>("0.15");
+  const [alertConf, setAlertConf] = useState<string>("0.70");
+  const [isFiltering, setIsFiltering] = useState<boolean>(false);
 
   useEffect(() => {
     loadHistory();
@@ -192,12 +198,18 @@ export default function DemThepScreen() {
 
       for (let i = 0; i < initialBatch.length; i++) {
           setActiveIndex(i);
-          await processSingleImage(initialBatch[i].originalImage, i);
+          await processSingleImage(initialBatch[i].originalImage, i, isFiltering);
       }
     }
   };
 
-  const processSingleImage = async (uri: string, targetIndex: number) => {
+  const processSingleImage = async (uri: string, targetIndex: number, currentFilterMode: boolean) => {
+    setBatch(prev => {
+        const newBatch = [...prev];
+        newBatch[targetIndex].status = 'loading';
+        return newBatch;
+    });
+
     try {
       const activeServer = await AsyncStorage.getItem('ACTIVE_SERVER') || 'colab';
       let currentServerUrl = '';
@@ -206,10 +218,11 @@ export default function DemThepScreen() {
       else if (activeServer === 'kaggle') currentServerUrl = await AsyncStorage.getItem('KAGGLE_URL') || '';
 
       if (!currentServerUrl || currentServerUrl.trim() === '') {
-        throw new Error('Chưa nhập link máy chủ!');
+        throw new Error('Chưa nhập link máy chủ Kaggle!');
       }
 
       const formData = new FormData();
+      
       if (Platform.OS === 'web') {
         const res = await fetch(uri);
         const blob = await res.blob();
@@ -221,6 +234,10 @@ export default function DemThepScreen() {
         // @ts-ignore
         formData.append('file', { uri, name: filename, type });
       }
+
+      formData.append('min_conf', minConf);
+      formData.append('alert_conf', alertConf);
+      formData.append('is_filtering', currentFilterMode ? 'true' : 'false');
 
       const response = await fetch(currentServerUrl, {
         method: 'POST',
@@ -251,7 +268,7 @@ export default function DemThepScreen() {
             return newBatch;
         });
 
-        if (fallbackUri) {
+        if (fallbackUri && !currentFilterMode) {
              saveToHistory(uri, fallbackUri, data.count);
         }
 
@@ -265,7 +282,7 @@ export default function DemThepScreen() {
           newBatch[targetIndex].status = 'error';
           return newBatch;
       });
-      if (batch.length === 1) { 
+      if (batch.length === 1 || targetIndex === activeIndex) { 
           Alert.alert('Lỗi', error.message || 'Không thể kết nối máy chủ.');
       }
     }
@@ -273,6 +290,22 @@ export default function DemThepScreen() {
 
   const handleModeChange = (mode: number) => {
     setCurrentMode(mode);
+  };
+
+  const toggleFilter = () => {
+      const newMode = !isFiltering;
+      setIsFiltering(newMode);
+      if (batch.length > 0 && activeIndex >= 0) {
+          processSingleImage(batch[activeIndex].originalImage, activeIndex, newMode);
+      }
+  };
+
+  const applyNewParams = () => {
+      if (batch.length > 0 && activeIndex >= 0) {
+          processSingleImage(batch[activeIndex].originalImage, activeIndex, isFiltering);
+      } else {
+          Alert.alert("Chưa có ảnh", "Anh hai chụp hoặc chọn ảnh đi rồi mới áp dụng được nhé!");
+      }
   };
 
   const currentActiveItem = batch[activeIndex];
@@ -299,24 +332,102 @@ export default function DemThepScreen() {
             <Text style={[styles.subtitle, { color: colors.subText }]}>Nguyễn Thanh Dương - HPDQ01016</Text>
           </View>
 
-          {/* KHU VỰC HIỂN THỊ ẢNH LỚN */}
-          <View style={[styles.imageContainer, { borderColor: colors.border, backgroundColor: colors.card }]}>
-            {isCurrentlyLoading ? (
-              <View style={styles.loadingBox}>
-                <ActivityIndicator size="large" color={colors.primary} />
-                <Text style={{ color: colors.text, marginTop: 10, textAlign: 'center' }}>Đang nhờ AI đếm thép, chờ xíu nhé...</Text>
-              </View>
-            ) : displayUri ? (
-              <SteelImageViewer imageUri={displayUri} />
-            ) : (
-              <View style={styles.placeholderBox}>
-                <Ionicons name="image-outline" size={60} color={colors.subText} />
-                <Text style={{ color: colors.subText, marginTop: 10 }}>Chưa có ảnh nào được chọn</Text>
-              </View>
-            )}
-          </View>
+          {/* ============================================================== */}
+          {/* KHU VỰC LÀM VIỆC CHÍNH (TỈ LỆ 9/1): ẢNH (TRÁI) & ĐIỀU KHIỂN (PHẢI) */}
+          {/* ============================================================== */}
+          <View style={styles.mainWorkspace}>
+            
+            {/* CỘT TRÁI (TỈ LỆ 9): KHU VỰC HIỂN THỊ ẢNH THÉP */}
+            <View style={[styles.imagePanel, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                {isCurrentlyLoading ? (
+                <View style={styles.loadingBox}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                    <Text style={{ color: colors.text, marginTop: 10, textAlign: 'center' }}>Đang đếm thép...</Text>
+                </View>
+                ) : displayUri ? (
+                <SteelImageViewer imageUri={displayUri} />
+                ) : (
+                <View style={styles.placeholderBox}>
+                    <Ionicons name="image-outline" size={40} color={colors.subText} />
+                    <Text style={{ color: colors.subText, marginTop: 10, textAlign: 'center' }}>Chưa có ảnh</Text>
+                </View>
+                )}
+            </View>
 
-          {/* DẢI ẢNH THU NHỎ QUẸT NGANG KHI CHỌN NHIỀU ẢNH */}
+            {/* CỘT PHẢI (TỈ LỆ 1): BẢNG ĐIỀU KHIỂN ĐƯỢC CHUYỂN SANG */}
+            <ScrollView style={styles.controlPanel} showsVerticalScrollIndicator={false}>
+                
+                {/* 1. BỘ CÔNG TẮC HIỂN THỊ (ĐÃ TÁCH RỜI VÀ BO VIỀN) */}
+                {currentActiveItem?.status === 'success' && (currentActiveItem.resultImages.v1 || currentActiveItem.processedImage) && (
+                <View style={{ marginBottom: 12 }}>
+                    <TouchableOpacity 
+                        style={[styles.modeBtn, { backgroundColor: currentMode === 1 ? colors.primary : colors.card, borderColor: currentMode === 1 ? colors.primary : colors.border }]} 
+                        onPress={() => handleModeChange(1)}>
+                        <Text style={[styles.sideBtnText, { color: currentMode === 1 ? 'white' : colors.text }]}>Khung</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                        style={[styles.modeBtn, { backgroundColor: currentMode === 2 ? colors.primary : colors.card, borderColor: currentMode === 2 ? colors.primary : colors.border }]} 
+                        onPress={() => handleModeChange(2)}>
+                        <Text style={[styles.sideBtnText, { color: currentMode === 2 ? 'white' : colors.text }]}>K+Số</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                        style={[styles.modeBtn, { backgroundColor: currentMode === 3 ? colors.primary : colors.card, borderColor: currentMode === 3 ? colors.primary : colors.border, marginBottom: 0 }]} 
+                        onPress={() => handleModeChange(3)}>
+                        <Text style={[styles.sideBtnText, { color: currentMode === 3 ? 'white' : colors.text }]}>Chỉ Số</Text>
+                    </TouchableOpacity>
+                </View>
+                )}
+
+                {/* 2. CẤU HÌNH AI & LỌC */}
+                <View style={[styles.sideGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                    
+                    {/* Ngưỡng Min (Label trên TextBox dưới) */}
+                    <View style={styles.inputGroup}>
+                        <Text style={[styles.inputLabel, { color: colors.subText }]}>Min:</Text>
+                        <TextInput 
+                            style={[styles.sideInput, { color: colors.text, borderColor: colors.border }]} 
+                            value={minConf} onChangeText={setMinConf} keyboardType="numeric" 
+                        />
+                    </View>
+
+                    {/* Ngưỡng Lọc (Label trên TextBox dưới) */}
+                    <View style={styles.inputGroup}>
+                        <Text style={[styles.inputLabel, { color: colors.subText }]}>Lọc:</Text>
+                        <TextInput 
+                            style={[styles.sideInput, { color: colors.text, borderColor: colors.border }]} 
+                            value={alertConf} onChangeText={setAlertConf} keyboardType="numeric" 
+                        />
+                    </View>
+
+                    {/* Nút Lọc */}
+                    <TouchableOpacity 
+                        style={[styles.sideBtn, { backgroundColor: isFiltering ? '#EAB308' : colors.iconBg, borderColor: isFiltering ? '#EAB308' : colors.border, borderWidth: 1 }]} 
+                        onPress={toggleFilter}
+                    >
+                        <Text style={[styles.sideBtnText, { color: isFiltering ? 'white' : colors.text }]}>
+                            {isFiltering ? 'Bật Lọc' : 'Không'}
+                        </Text>
+                    </TouchableOpacity>
+
+                    {/* Nút Áp dụng */}
+                    <TouchableOpacity 
+                        style={[styles.sideBtn, { backgroundColor: colors.primary, marginBottom: 0 }]} 
+                        onPress={applyNewParams}
+                    >
+                        <Text style={[styles.sideBtnText, { color: 'white' }]}>Áp dụng</Text>
+                    </TouchableOpacity>
+
+                </View>
+
+            </ScrollView>
+
+          </View>
+          {/* ============================================================== */}
+
+
+          {/* DẢI ẢNH THU NHỎ */}
           {batch.length > 1 && (
               <View style={styles.thumbnailContainer}>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -343,12 +454,6 @@ export default function DemThepScreen() {
                                       <Text style={styles.thumbBadgeText}>{item.count}</Text>
                                   </View>
                               )}
-                              
-                              {item.status === 'error' && (
-                                  <View style={[styles.thumbBadge, { backgroundColor: colors.error }]}>
-                                      <Ionicons name="warning" size={10} color="white" />
-                                  </View>
-                              )}
                           </TouchableOpacity>
                       ))}
                   </ScrollView>
@@ -359,27 +464,12 @@ export default function DemThepScreen() {
           {currentActiveItem?.status === 'success' && currentActiveItem?.count !== null && (
             <View style={styles.totalContainer}>
               <Text style={[styles.totalText, { color: colors.primary }]}>
-                Tổng: {currentActiveItem.count} cây
+                {isFiltering ? `ĐANG LỌC: ${currentActiveItem.count} LỖI` : `Tổng: ${currentActiveItem.count} cây`}
               </Text>
             </View>
           )}
 
-          {/* BỘ 3 CÔNG TẮC ĐIỀU KHIỂN HIỂN THỊ */}
-          {currentActiveItem?.status === 'success' && (currentActiveItem.resultImages.v1 || currentActiveItem.processedImage) && (
-            <View style={[styles.toggleContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <TouchableOpacity style={[styles.toggleBtn, currentMode === 1 && { backgroundColor: colors.primary }]} onPress={() => handleModeChange(1)}>
-                <Text style={[styles.toggleText, currentMode === 1 ? { color: 'white' } : { color: colors.subText }]}>Chỉ Khung</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.toggleBtn, currentMode === 2 && { backgroundColor: colors.primary }]} onPress={() => handleModeChange(2)}>
-                <Text style={[styles.toggleText, currentMode === 2 ? { color: 'white' } : { color: colors.subText }]}>Khung + Số</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.toggleBtn, currentMode === 3 && { backgroundColor: colors.primary }]} onPress={() => handleModeChange(3)}>
-                <Text style={[styles.toggleText, currentMode === 3 ? { color: 'white' } : { color: colors.subText }]}>Chỉ Số</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* HAI NÚT THAO TÁC CƠ BẢN */}
+          {/* NÚT CHỤP / CHỌN ẢNH */}
           <View style={styles.buttonRow}>
             <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.primary }]} onPress={() => pickImage(true)}>
               <Ionicons name="camera" size={24} color="white" />
@@ -394,7 +484,7 @@ export default function DemThepScreen() {
 
           <View style={styles.separator} />
 
-          {/* LỊCH SỬ ĐẾM GẦN ĐÂY */}
+          {/* LỊCH SỬ ĐẾM */}
           <View style={styles.historyHeader}>
             <Text style={[styles.historyTitle, { color: colors.text }]}>Lịch Sử Đếm Gần Đây</Text>
             {history.length > 0 && (
@@ -405,18 +495,18 @@ export default function DemThepScreen() {
           </View>
 
           {history.length === 0 ? (
-            <Text style={{ color: colors.subText, fontStyle: 'italic', textAlign: 'center' }}>Chưa có lịch sử đếm nào.</Text>
+            <Text style={{ color: colors.subText, fontStyle: 'italic', textAlign: 'center' }}>Chưa có lịch sử.</Text>
           ) : (
             history.map((item) => (
               <TouchableOpacity key={item.id} style={[styles.historyCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => viewHistoryItem(item)}>
                 <Image source={{ uri: item.processedImage || item.originalImage }} style={styles.historyThumb} />
                 <View style={styles.historyInfo}>
-                  <Text style={[styles.historyCount, { color: colors.primary }]}>{item.count} cây thép</Text>
-                  <Text style={{ color: colors.subText, fontSize: 12 }}>
-                    {format(new Date(item.date), 'HH:mm - dd/MM/yyyy')}
+                  <Text style={[styles.historyCount, { color: colors.primary }]}>{item.count} cây</Text>
+                  <Text style={{ color: colors.subText, fontSize: 10 }}>
+                    {format(new Date(item.date), 'HH:mm dd/MM/')}
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={20} color={colors.subText} />
+                <Ionicons name="chevron-forward" size={16} color={colors.subText} />
               </TouchableOpacity>
             ))
           )}
@@ -428,74 +518,119 @@ export default function DemThepScreen() {
 }
 
 const styles = StyleSheet.create({
-  scrollContent: { padding: 15, paddingBottom: 80 },
-  header: { alignItems: 'center', marginBottom: 15 },
-  title: { fontSize: 24, fontWeight: 'bold' },
-  subtitle: { fontSize: 14, marginTop: 4 },
+  scrollContent: { padding: 12, paddingBottom: 60 },
+  header: { alignItems: 'center', marginBottom: 10 },
+  title: { fontSize: 20, fontWeight: 'bold' },
+  subtitle: { fontSize: 12, marginTop: 2 },
   
-  imageContainer: { 
-    width: '100%', height: 320, borderRadius: 16, 
-    borderWidth: 1, overflow: 'hidden', marginBottom: 10,
-    justifyContent: 'center', alignItems: 'center'
+  // =========================================================
+  // STYLE WORKSPACE (TỈ LỆ 9/1 ĐẢO NGƯỢC)
+  // =========================================================
+  mainWorkspace: {
+    flexDirection: 'row', 
+    height: WORKSPACE_HEIGHT, // Chiều cao 60% màn hình
+    marginBottom: 10,
   },
+  imagePanel: {
+    flex: 9, // Chiếm trọn 9 phần 
+    marginRight: 8, // Chừa khoảng trống nhỏ giữa ảnh và công cụ
+    borderRadius: 12, 
+    borderWidth: 1, 
+    overflow: 'hidden',
+    justifyContent: 'center', 
+    alignItems: 'center'
+  },
+  controlPanel: {
+    flex: 1, // Chiếm 1 phần nhỏ bên phải
+    minWidth: 70, // Đảm bảo luôn có 70px tối thiểu để chữ không bị bóp nghẹt quá mức
+  },
+  
+  sideGroup: {
+    padding: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  sideBtn: {
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 6,
+    marginBottom: 4,
+  },
+  sideBtnText: {
+    fontSize: 9, 
+    fontWeight: 'bold',
+    textAlign: 'center'
+  },
+  
+  // Lớp áo mới của mấy cái nút mode tách rời
+  modeBtn: {
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 8,       
+    borderWidth: 1,        
+    marginBottom: 8,       
+    elevation: 2, 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 1 }, 
+    shadowOpacity: 0.1, 
+    shadowRadius: 2,
+  },
+  
+  inputGroup: {
+    marginBottom: 8,
+  },
+  inputLabel: {
+    fontSize: 9, 
+    fontWeight: 'bold',
+    marginBottom: 2, 
+    textAlign: 'center'
+  },
+  sideInput: {
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingVertical: 4,
+    textAlign: 'center',
+    fontWeight: 'bold',
+    fontSize: 10,
+  },
+  // =========================================================
+
   placeholderBox: { alignItems: 'center', justifyContent: 'center' },
-  loadingBox: { alignItems: 'center', justifyContent: 'center' },
+  loadingBox: { alignItems: 'center', justifyContent: 'center', padding: 10 },
   
   viewerScroll: { width: '100%', height: '100%' },
   viewerContainer: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
   mainImage: { width: '100%', height: '100%' },
 
-  // STYLE CHO THANH THUMBNAIL
-  thumbnailContainer: {
-      marginBottom: 15,
-      height: 70,
-  },
+  thumbnailContainer: { marginBottom: 10, height: 60 },
   thumbWrap: {
-      width: 60, height: 60, borderRadius: 8, borderWidth: 2,
-      marginRight: 10, overflow: 'hidden', position: 'relative',
-      justifyContent: 'center', alignItems: 'center'
+      width: 50, height: 50, borderRadius: 6, borderWidth: 2, marginRight: 8, 
+      overflow: 'hidden', position: 'relative', justifyContent: 'center', alignItems: 'center'
   },
   thumbImage: { width: '100%', height: '100%' },
   thumbOverlay: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: 'rgba(0,0,0,0.5)',
+      ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)',
       justifyContent: 'center', alignItems: 'center'
   },
-  thumbBadge: {
-      position: 'absolute', top: 0, right: 0,
-      paddingHorizontal: 4, paddingVertical: 2,
-      borderBottomLeftRadius: 6,
-  },
-  thumbBadgeText: { color: 'white', fontSize: 10, fontWeight: 'bold' },
+  thumbBadge: { position: 'absolute', top: 0, right: 0, paddingHorizontal: 3, paddingVertical: 1, borderBottomLeftRadius: 5 },
+  thumbBadgeText: { color: 'white', fontSize: 8, fontWeight: 'bold' },
 
   totalContainer: {
-    alignItems: 'center', marginBottom: 15, backgroundColor: 'rgba(0,0,0,0.05)',
-    paddingVertical: 10, borderRadius: 12,
+    alignItems: 'center', marginBottom: 10, backgroundColor: 'rgba(0,0,0,0.05)',
+    paddingVertical: 8, borderRadius: 10,
   },
-  totalText: { fontSize: 22, fontWeight: '900', textTransform: 'uppercase' },
+  totalText: { fontSize: 18, fontWeight: '900', textTransform: 'uppercase' },
 
-  toggleContainer: {
-    flexDirection: 'row', borderRadius: 12, borderWidth: 1,
-    padding: 4, marginBottom: 20, justifyContent: 'space-between',
-  },
-  toggleBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8 },
-  toggleText: { fontSize: 14, fontWeight: 'bold' },
+  buttonRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 12, borderRadius: 10, marginHorizontal: 4 },
+  btnText: { fontWeight: 'bold', marginLeft: 6, fontSize: 14 },
   
-  buttonRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
-  actionBtn: { 
-    flex: 1, flexDirection: 'row', alignItems: 'center', 
-    justifyContent: 'center', padding: 15, borderRadius: 12, marginHorizontal: 5 
-  },
-  btnText: { fontWeight: 'bold', marginLeft: 8, fontSize: 16 },
-  
-  separator: { height: 1, backgroundColor: 'rgba(150,150,150,0.2)', marginVertical: 10 },
-  historyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
-  historyTitle: { fontSize: 18, fontWeight: 'bold' },
-  historyCard: { 
-    flexDirection: 'row', padding: 10, borderRadius: 12, 
-    borderWidth: 1, marginBottom: 10, alignItems: 'center' 
-  },
-  historyThumb: { width: 60, height: 60, borderRadius: 8, marginRight: 15 },
+  separator: { height: 1, backgroundColor: 'rgba(150,150,150,0.1)', marginVertical: 8 },
+  historyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  historyTitle: { fontSize: 16, fontWeight: 'bold' },
+  historyCard: { flexDirection: 'row', padding: 8, borderRadius: 10, borderWidth: 1, marginBottom: 8, alignItems: 'center' },
+  historyThumb: { width: 45, height: 45, borderRadius: 6, marginRight: 10 },
   historyInfo: { flex: 1 },
-  historyCount: { fontSize: 16, fontWeight: 'bold', marginBottom: 4 }
+  historyCount: { fontSize: 14, fontWeight: 'bold', marginBottom: 2 }
 });
