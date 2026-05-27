@@ -12,9 +12,7 @@ import { useTheme } from '../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { format } from 'date-fns';
 
-// Tính toán kích thước màn hình
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-// Ép chiều cao khung làm việc (ảnh + tool) chiếm 60% màn hình
 const WORKSPACE_HEIGHT = SCREEN_HEIGHT * 0.6; 
 
 type HistoryItem = {
@@ -34,7 +32,6 @@ type BatchItem = {
   status: 'loading' | 'success' | 'error' | 'idle';
 };
 
-// COMPONENT CON XỬ LÝ ZOOM ĐỘC LẬP - BẢN HOÀN HẢO (CHỐNG CRASH + CHỐNG LÚN)
 function SteelImageViewer({ imageUri }: { imageUri: string }) {
   const [resetKey, setResetKey] = useState(0);
   const lastTap = useRef(0);
@@ -86,7 +83,6 @@ export default function DemThepScreen() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [currentMode, setCurrentMode] = useState<number>(1);
 
-  // --- CÁC THAM SỐ CẤU HÌNH AI ---
   const [minConf, setMinConf] = useState<string>("0.15");
   const [alertConf, setAlertConf] = useState<string>("0.70");
   const [isFiltering, setIsFiltering] = useState<boolean>(false);
@@ -333,7 +329,7 @@ export default function DemThepScreen() {
           </View>
 
           {/* ============================================================== */}
-          {/* KHU VỰC LÀM VIỆC CHÍNH (TỈ LỆ 9/1): ẢNH (TRÁI) & ĐIỀU KHIỂN (PHẢI) */}
+          {/* KHU VỰC LÀM VIỆC CHÍNH (TỈ LỆ 9/1) */}
           {/* ============================================================== */}
           <View style={styles.mainWorkspace}>
             
@@ -354,36 +350,13 @@ export default function DemThepScreen() {
                 )}
             </View>
 
-            {/* CỘT PHẢI (TỈ LỆ 1): BẢNG ĐIỀU KHIỂN ĐƯỢC CHUYỂN SANG */}
-            <ScrollView style={styles.controlPanel} showsVerticalScrollIndicator={false}>
+            {/* CỘT PHẢI (TỈ LỆ 1): BẢNG ĐIỀU KHIỂN CỐ ĐỊNH, KHÔNG BỊ CUỘN MẤT NÚT */}
+            <View style={styles.controlPanel}>
                 
-                {/* 1. BỘ CÔNG TẮC HIỂN THỊ (ĐÃ TÁCH RỜI VÀ BO VIỀN) */}
-                {currentActiveItem?.status === 'success' && (currentActiveItem.resultImages.v1 || currentActiveItem.processedImage) && (
-                <View style={{ marginBottom: 12 }}>
-                    <TouchableOpacity 
-                        style={[styles.modeBtn, { backgroundColor: currentMode === 1 ? colors.primary : colors.card, borderColor: currentMode === 1 ? colors.primary : colors.border }]} 
-                        onPress={() => handleModeChange(1)}>
-                        <Text style={[styles.sideBtnText, { color: currentMode === 1 ? 'white' : colors.text }]}>Khung</Text>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity 
-                        style={[styles.modeBtn, { backgroundColor: currentMode === 2 ? colors.primary : colors.card, borderColor: currentMode === 2 ? colors.primary : colors.border }]} 
-                        onPress={() => handleModeChange(2)}>
-                        <Text style={[styles.sideBtnText, { color: currentMode === 2 ? 'white' : colors.text }]}>K+Số</Text>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity 
-                        style={[styles.modeBtn, { backgroundColor: currentMode === 3 ? colors.primary : colors.card, borderColor: currentMode === 3 ? colors.primary : colors.border, marginBottom: 0 }]} 
-                        onPress={() => handleModeChange(3)}>
-                        <Text style={[styles.sideBtnText, { color: currentMode === 3 ? 'white' : colors.text }]}>Chỉ Số</Text>
-                    </TouchableOpacity>
-                </View>
-                )}
-
-                {/* 2. CẤU HÌNH AI & LỌC */}
+                {/* 1. KHU VỰC TRÊN CÙNG: CẤU HÌNH AI & LỌC */}
                 <View style={[styles.sideGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
                     
-                    {/* Ngưỡng Min (Label trên TextBox dưới) */}
+                    {/* Ngưỡng Min */}
                     <View style={styles.inputGroup}>
                         <Text style={[styles.inputLabel, { color: colors.subText }]}>Min:</Text>
                         <TextInput 
@@ -392,7 +365,7 @@ export default function DemThepScreen() {
                         />
                     </View>
 
-                    {/* Ngưỡng Lọc (Label trên TextBox dưới) */}
+                    {/* Ngưỡng Lọc */}
                     <View style={styles.inputGroup}>
                         <Text style={[styles.inputLabel, { color: colors.subText }]}>Lọc:</Text>
                         <TextInput 
@@ -421,7 +394,28 @@ export default function DemThepScreen() {
 
                 </View>
 
-            </ScrollView>
+                {/* 2. KHU VỰC DƯỚI ĐÁY: BỘ CÔNG TẮC HIỂN THỊ (LUÔN LUÔN HIỆN) */}
+                <View style={{ marginBottom: 0 }}>
+                    <TouchableOpacity 
+                        style={[styles.modeBtn, { backgroundColor: currentMode === 1 ? colors.primary : colors.card, borderColor: currentMode === 1 ? colors.primary : colors.border }]} 
+                        onPress={() => handleModeChange(1)}>
+                        <Text style={[styles.sideBtnText, { color: currentMode === 1 ? 'white' : colors.text }]}>Khung</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                        style={[styles.modeBtn, { backgroundColor: currentMode === 2 ? colors.primary : colors.card, borderColor: currentMode === 2 ? colors.primary : colors.border }]} 
+                        onPress={() => handleModeChange(2)}>
+                        <Text style={[styles.sideBtnText, { color: currentMode === 2 ? 'white' : colors.text }]}>K+Số</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                        style={[styles.modeBtn, { backgroundColor: currentMode === 3 ? colors.primary : colors.card, borderColor: currentMode === 3 ? colors.primary : colors.border, marginBottom: 0 }]} 
+                        onPress={() => handleModeChange(3)}>
+                        <Text style={[styles.sideBtnText, { color: currentMode === 3 ? 'white' : colors.text }]}>Chỉ Số</Text>
+                    </TouchableOpacity>
+                </View>
+
+            </View>
 
           </View>
           {/* ============================================================== */}
@@ -524,16 +518,16 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 12, marginTop: 2 },
   
   // =========================================================
-  // STYLE WORKSPACE (TỈ LỆ 9/1 ĐẢO NGƯỢC)
+  // STYLE WORKSPACE (TỈ LỆ 9/1 ĐẢO NGƯỢC, PANEL ĐIỀU KHIỂN CỐ ĐỊNH)
   // =========================================================
   mainWorkspace: {
     flexDirection: 'row', 
-    height: WORKSPACE_HEIGHT, // Chiều cao 60% màn hình
+    height: WORKSPACE_HEIGHT, 
     marginBottom: 10,
   },
   imagePanel: {
-    flex: 9, // Chiếm trọn 9 phần 
-    marginRight: 8, // Chừa khoảng trống nhỏ giữa ảnh và công cụ
+    flex: 9, 
+    marginRight: 8, 
     borderRadius: 12, 
     borderWidth: 1, 
     overflow: 'hidden',
@@ -541,15 +535,15 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   controlPanel: {
-    flex: 1, // Chiếm 1 phần nhỏ bên phải
-    minWidth: 70, // Đảm bảo luôn có 70px tối thiểu để chữ không bị bóp nghẹt quá mức
+    flex: 1, 
+    minWidth: 70, 
+    justifyContent: 'space-between', // <--- Tuyệt chiêu đẩy cài đặt lên nóc, nút hiển thị xuống đáy!
   },
   
   sideGroup: {
     padding: 4,
     borderRadius: 8,
     borderWidth: 1,
-    marginBottom: 8,
   },
   sideBtn: {
     paddingVertical: 8,
@@ -563,7 +557,6 @@ const styles = StyleSheet.create({
     textAlign: 'center'
   },
   
-  // Lớp áo mới của mấy cái nút mode tách rời
   modeBtn: {
     paddingVertical: 10,
     alignItems: 'center',
