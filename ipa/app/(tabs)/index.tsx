@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, ScrollView, 
-  Image, ActivityIndicator, Alert, Platform, TouchableWithoutFeedback, TextInput, Dimensions 
+  Image, ActivityIndicator, Alert, Platform, TouchableWithoutFeedback, TextInput, Dimensions, Modal 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,7 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { format } from 'date-fns';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const WORKSPACE_HEIGHT = SCREEN_HEIGHT * 0.6; 
+const WORKSPACE_HEIGHT = SCREEN_HEIGHT * 0.55; // Điều chỉnh xíu cho cân đối dàn nút bên dưới
 
 type HistoryItem = {
   id: string;
@@ -32,13 +32,14 @@ type BatchItem = {
   status: 'loading' | 'success' | 'error' | 'idle';
 };
 
-function SteelImageViewer({ imageUri }: { imageUri: string }) {
+// COMPONENT CON XỬ LÝ ZOOM ĐỘC LẬP
+function SteelImageViewer({ imageUri, resetTrigger }: { imageUri: string, resetTrigger: string | undefined }) {
   const [resetKey, setResetKey] = useState(0);
   const lastTap = useRef(0);
 
   useEffect(() => {
     setResetKey(prev => prev + 1);
-  }, [imageUri]);
+  }, [resetTrigger]);
 
   const handleDoubleTap = () => {
     const now = Date.now();
@@ -83,9 +84,11 @@ export default function DemThepScreen() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [currentMode, setCurrentMode] = useState<number>(1);
 
+  // Cấu hình AI & Trạng thái bật/tắt Tab Cài Đặt
   const [minConf, setMinConf] = useState<string>("0.15");
   const [alertConf, setAlertConf] = useState<string>("0.70");
   const [isFiltering, setIsFiltering] = useState<boolean>(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
 
   useEffect(() => {
     loadHistory();
@@ -297,10 +300,11 @@ export default function DemThepScreen() {
   };
 
   const applyNewParams = () => {
+      setIsSettingsOpen(false); // Đóng modal cài đặt
       if (batch.length > 0 && activeIndex >= 0) {
           processSingleImage(batch[activeIndex].originalImage, activeIndex, isFiltering);
       } else {
-          Alert.alert("Chưa có ảnh", "Anh hai chụp hoặc chọn ảnh đi rồi mới áp dụng được nhé!");
+          Alert.alert("Chưa có ảnh", "Thông số đã lưu! Hãy chọn ảnh để đếm nhé.");
       }
   };
 
@@ -321,105 +325,81 @@ export default function DemThepScreen() {
   return (
     <LinearGradient colors={bgColors} style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-        <ScrollView ref={mainScrollRef} contentContainerStyle={styles.scrollContent}>
-          
-          <View style={styles.header}>
-            <Text style={[styles.title, { color: colors.text }]}>Thần Nhãn Đếm Thép</Text>
-            <Text style={[styles.subtitle, { color: colors.subText }]}>Nguyễn Thanh Dương - HPDQ01016</Text>
-          </View>
-
-          {/* ============================================================== */}
-          {/* KHU VỰC LÀM VIỆC CHÍNH (TỈ LỆ 9/1) */}
-          {/* ============================================================== */}
-          <View style={styles.mainWorkspace}>
-            
-            {/* CỘT TRÁI (TỈ LỆ 9): KHU VỰC HIỂN THỊ ẢNH THÉP */}
-            <View style={[styles.imagePanel, { borderColor: colors.border, backgroundColor: colors.card }]}>
-                {isCurrentlyLoading ? (
-                <View style={styles.loadingBox}>
-                    <ActivityIndicator size="large" color={colors.primary} />
-                    <Text style={{ color: colors.text, marginTop: 10, textAlign: 'center' }}>Đang đếm thép...</Text>
-                </View>
-                ) : displayUri ? (
-                <SteelImageViewer imageUri={displayUri} />
-                ) : (
-                <View style={styles.placeholderBox}>
-                    <Ionicons name="image-outline" size={40} color={colors.subText} />
-                    <Text style={{ color: colors.subText, marginTop: 10, textAlign: 'center' }}>Chưa có ảnh</Text>
-                </View>
-                )}
-            </View>
-
-            {/* CỘT PHẢI (TỈ LỆ 1): BẢNG ĐIỀU KHIỂN CỐ ĐỊNH, KHÔNG BỊ CUỘN MẤT NÚT */}
-            <View style={styles.controlPanel}>
-                
-                {/* 1. KHU VỰC TRÊN CÙNG: CẤU HÌNH AI & LỌC */}
-                <View style={[styles.sideGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        
+        {/* TAB CÀI ĐẶT ẨN (MODAL) */}
+        <Modal visible={isSettingsOpen} transparent={true} animationType="fade">
+            <View style={styles.modalOverlay}>
+                <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                    <Text style={[styles.modalTitle, { color: colors.text }]}>Cài Đặt</Text>
                     
-                    {/* Ngưỡng Min */}
-                    <View style={styles.inputGroup}>
-                        <Text style={[styles.inputLabel, { color: colors.subText }]}>Min:</Text>
+                    <View style={styles.modalRow}>
+                        <Text style={[styles.modalLabel, { color: colors.subText }]}>Ngưỡng đếm thép (Min):</Text>
                         <TextInput 
-                            style={[styles.sideInput, { color: colors.text, borderColor: colors.border }]} 
+                            style={[styles.modalInput, { color: colors.text, borderColor: colors.border }]} 
                             value={minConf} onChangeText={setMinConf} keyboardType="numeric" 
                         />
                     </View>
 
-                    {/* Ngưỡng Lọc */}
-                    <View style={styles.inputGroup}>
-                        <Text style={[styles.inputLabel, { color: colors.subText }]}>Lọc:</Text>
+                    <View style={styles.modalRow}>
+                        <Text style={[styles.modalLabel, { color: colors.subText }]}>Ngưỡng báo lỗi (Lọc):</Text>
                         <TextInput 
-                            style={[styles.sideInput, { color: colors.text, borderColor: colors.border }]} 
+                            style={[styles.modalInput, { color: colors.text, borderColor: colors.border }]} 
                             value={alertConf} onChangeText={setAlertConf} keyboardType="numeric" 
                         />
                     </View>
 
-                    {/* Nút Lọc */}
-                    <TouchableOpacity 
-                        style={[styles.sideBtn, { backgroundColor: isFiltering ? '#EAB308' : colors.iconBg, borderColor: isFiltering ? '#EAB308' : colors.border, borderWidth: 1 }]} 
-                        onPress={toggleFilter}
-                    >
-                        <Text style={[styles.sideBtnText, { color: isFiltering ? 'white' : colors.text }]}>
-                            {isFiltering ? 'Bật Lọc' : 'Không'}
-                        </Text>
-                    </TouchableOpacity>
-
-                    {/* Nút Áp dụng */}
-                    <TouchableOpacity 
-                        style={[styles.sideBtn, { backgroundColor: colors.primary, marginBottom: 0 }]} 
-                        onPress={applyNewParams}
-                    >
-                        <Text style={[styles.sideBtnText, { color: 'white' }]}>Áp dụng</Text>
-                    </TouchableOpacity>
-
+                    <View style={styles.modalActions}>
+                        <TouchableOpacity style={[styles.modalBtn, { backgroundColor: colors.iconBg }]} onPress={() => setIsSettingsOpen(false)}>
+                            <Text style={{ color: colors.text, fontWeight: 'bold' }}>Hủy</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[styles.modalBtn, { backgroundColor: colors.primary }]} onPress={applyNewParams}>
+                            <Text style={{ color: 'white', fontWeight: 'bold' }}>Áp Dụng Lại</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
-
-                {/* 2. KHU VỰC DƯỚI ĐÁY: BỘ CÔNG TẮC HIỂN THỊ (LUÔN LUÔN HIỆN) */}
-                <View style={{ marginBottom: 0 }}>
-                    <TouchableOpacity 
-                        style={[styles.modeBtn, { backgroundColor: currentMode === 1 ? colors.primary : colors.card, borderColor: currentMode === 1 ? colors.primary : colors.border }]} 
-                        onPress={() => handleModeChange(1)}>
-                        <Text style={[styles.sideBtnText, { color: currentMode === 1 ? 'white' : colors.text }]}>Khung</Text>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity 
-                        style={[styles.modeBtn, { backgroundColor: currentMode === 2 ? colors.primary : colors.card, borderColor: currentMode === 2 ? colors.primary : colors.border }]} 
-                        onPress={() => handleModeChange(2)}>
-                        <Text style={[styles.sideBtnText, { color: currentMode === 2 ? 'white' : colors.text }]}>K+Số</Text>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity 
-                        style={[styles.modeBtn, { backgroundColor: currentMode === 3 ? colors.primary : colors.card, borderColor: currentMode === 3 ? colors.primary : colors.border, marginBottom: 0 }]} 
-                        onPress={() => handleModeChange(3)}>
-                        <Text style={[styles.sideBtnText, { color: currentMode === 3 ? 'white' : colors.text }]}>Chỉ Số</Text>
-                    </TouchableOpacity>
-                </View>
-
             </View>
+        </Modal>
 
+        <ScrollView ref={mainScrollRef} contentContainerStyle={styles.scrollContent}>
+          
+          <View style={styles.header}>
+            <View style={{ flex: 1 }} />
+            <View style={{ alignItems: 'center', flex: 4 }}>
+                <Text style={[styles.title, { color: colors.text }]}>Ứng Dụng Đếm Thép</Text>
+                <Text style={[styles.subtitle, { color: colors.subText }]}>Nguyễn Thanh Dương - HPDQ01016</Text>
+            </View>
+            <TouchableOpacity style={styles.settingsIcon} onPress={() => setIsSettingsOpen(true)}>
+                <Ionicons name="settings" size={26} color={colors.primary} />
+            </TouchableOpacity>
           </View>
-          {/* ============================================================== */}
 
+          {/* ============================================================== */}
+          {/* KHU VỰC ẢNH FULL MÀN HÌNH (100% CHIỀU RỘNG) */}
+          {/* ============================================================== */}
+          <View style={[styles.imagePanel, { borderColor: colors.border, backgroundColor: colors.card }]}>
+              {isCurrentlyLoading ? (
+              <View style={styles.loadingBox}>
+                  <ActivityIndicator size="large" color={colors.primary} />
+                  <Text style={{ color: colors.text, marginTop: 10, textAlign: 'center' }}>Đang đếm thép...</Text>
+              </View>
+              ) : displayUri ? (
+              <SteelImageViewer imageUri={displayUri} resetTrigger={currentActiveItem?.id} />
+              ) : (
+              <View style={styles.placeholderBox}>
+                  <Ionicons name="image-outline" size={50} color={colors.subText} />
+                  <Text style={{ color: colors.subText, marginTop: 10, textAlign: 'center' }}>Chưa có ảnh nào được chọn</Text>
+              </View>
+              )}
+          </View>
+          
+          {/* KẾT QUẢ ĐẾM THÉP (Nằm ngay dưới ảnh) */}
+          {currentActiveItem?.status === 'success' && currentActiveItem?.count !== null && (
+            <View style={styles.totalContainer}>
+              <Text style={[styles.totalText, { color: colors.primary }]}>
+                {isFiltering ? `ĐANG LỌC: ${currentActiveItem.count} LỖI` : `Tổng: ${currentActiveItem.count} cây`}
+              </Text>
+            </View>
+          )}
 
           {/* DẢI ẢNH THU NHỎ */}
           {batch.length > 1 && (
@@ -454,16 +434,40 @@ export default function DemThepScreen() {
               </View>
           )}
 
-          {/* KẾT QUẢ ĐẾM THÉP */}
-          {currentActiveItem?.status === 'success' && currentActiveItem?.count !== null && (
-            <View style={styles.totalContainer}>
-              <Text style={[styles.totalText, { color: colors.primary }]}>
-                {isFiltering ? `ĐANG LỌC: ${currentActiveItem.count} LỖI` : `Tổng: ${currentActiveItem.count} cây`}
-              </Text>
-            </View>
-          )}
+          {/* ============================================================== */}
+          {/* BỘ 4 NÚT ĐIỀU KHIỂN NẰM NGANG (KHUNG - K+SỐ - SỐ - LỌC) */}
+          {/* ============================================================== */}
+          <View style={styles.controlRow}>
+            <TouchableOpacity 
+                style={[styles.modeBtn, { backgroundColor: currentMode === 1 ? colors.primary : colors.card, borderColor: currentMode === 1 ? colors.primary : colors.border }]} 
+                onPress={() => handleModeChange(1)}>
+              <Text style={[styles.modeText, { color: currentMode === 1 ? 'white' : colors.text }]}>Khung</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+                style={[styles.modeBtn, { backgroundColor: currentMode === 2 ? colors.primary : colors.card, borderColor: currentMode === 2 ? colors.primary : colors.border }]} 
+                onPress={() => handleModeChange(2)}>
+              <Text style={[styles.modeText, { color: currentMode === 2 ? 'white' : colors.text }]}>K+Số</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+                style={[styles.modeBtn, { backgroundColor: currentMode === 3 ? colors.primary : colors.card, borderColor: currentMode === 3 ? colors.primary : colors.border }]} 
+                onPress={() => handleModeChange(3)}>
+              <Text style={[styles.modeText, { color: currentMode === 3 ? 'white' : colors.text }]}>Số</Text>
+            </TouchableOpacity>
 
-          {/* NÚT CHỤP / CHỌN ẢNH */}
+            <TouchableOpacity 
+                style={[styles.modeBtn, { backgroundColor: isFiltering ? '#EAB308' : colors.card, borderColor: isFiltering ? '#EAB308' : colors.border }]} 
+                onPress={toggleFilter}>
+              <Text style={[styles.modeText, { color: isFiltering ? 'white' : colors.text }]}>
+                {isFiltering ? 'Tắt Lọc' : 'Bật Lọc'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* ============================================================== */}
+          {/* NÚT CHỤP / CHỌN ẢNH NẰM DƯỚI CÙNG */}
+          {/* ============================================================== */}
           <View style={styles.buttonRow}>
             <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.primary }]} onPress={() => pickImage(true)}>
               <Ionicons name="camera" size={24} color="white" />
@@ -513,101 +517,40 @@ export default function DemThepScreen() {
 
 const styles = StyleSheet.create({
   scrollContent: { padding: 12, paddingBottom: 60 },
-  header: { alignItems: 'center', marginBottom: 10 },
-  title: { fontSize: 20, fontWeight: 'bold' },
-  subtitle: { fontSize: 12, marginTop: 2 },
   
-  // =========================================================
-  // STYLE WORKSPACE (TỈ LỆ 9/1 ĐẢO NGƯỢC, PANEL ĐIỀU KHIỂN CỐ ĐỊNH)
-  // =========================================================
-  mainWorkspace: {
-    flexDirection: 'row', 
+  // Header chứa Icon Cài Đặt
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
+  title: { fontSize: 20, fontWeight: 'bold', textAlign: 'center' },
+  subtitle: { fontSize: 12, marginTop: 2, textAlign: 'center' },
+  settingsIcon: { flex: 1, alignItems: 'flex-end', paddingRight: 5 },
+  
+  // MODAL CÀI ĐẶT
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalCard: { width: '100%', padding: 20, borderRadius: 16, borderWidth: 1, elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4 },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
+  modalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+  modalLabel: { fontSize: 14, fontWeight: 'bold' },
+  modalInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 15, paddingVertical: 8, width: 80, textAlign: 'center', fontWeight: 'bold', fontSize: 16 },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10 },
+  modalBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, marginLeft: 10 },
+
+  // KHUNG ẢNH FULL BỀ NGANG
+  imagePanel: {
+    width: '100%',
     height: WORKSPACE_HEIGHT, 
     marginBottom: 10,
-  },
-  imagePanel: {
-    flex: 9, 
-    marginRight: 8, 
     borderRadius: 12, 
     borderWidth: 1, 
     overflow: 'hidden',
     justifyContent: 'center', 
     alignItems: 'center'
   },
-  controlPanel: {
-    flex: 1, 
-    minWidth: 70, 
-    justifyContent: 'space-between', // <--- Tuyệt chiêu đẩy cài đặt lên nóc, nút hiển thị xuống đáy!
-  },
-  
-  sideGroup: {
-    padding: 4,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  sideBtn: {
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderRadius: 6,
-    marginBottom: 4,
-  },
-  sideBtnText: {
-    fontSize: 9, 
-    fontWeight: 'bold',
-    textAlign: 'center'
-  },
-  
-  modeBtn: {
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderRadius: 8,       
-    borderWidth: 1,        
-    marginBottom: 8,       
-    elevation: 2, 
-    shadowColor: '#000', 
-    shadowOffset: { width: 0, height: 1 }, 
-    shadowOpacity: 0.1, 
-    shadowRadius: 2,
-  },
-  
-  inputGroup: {
-    marginBottom: 8,
-  },
-  inputLabel: {
-    fontSize: 9, 
-    fontWeight: 'bold',
-    marginBottom: 2, 
-    textAlign: 'center'
-  },
-  sideInput: {
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingVertical: 4,
-    textAlign: 'center',
-    fontWeight: 'bold',
-    fontSize: 10,
-  },
-  // =========================================================
 
   placeholderBox: { alignItems: 'center', justifyContent: 'center' },
   loadingBox: { alignItems: 'center', justifyContent: 'center', padding: 10 },
-  
   viewerScroll: { width: '100%', height: '100%' },
   viewerContainer: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
   mainImage: { width: '100%', height: '100%' },
-
-  thumbnailContainer: { marginBottom: 10, height: 60 },
-  thumbWrap: {
-      width: 50, height: 50, borderRadius: 6, borderWidth: 2, marginRight: 8, 
-      overflow: 'hidden', position: 'relative', justifyContent: 'center', alignItems: 'center'
-  },
-  thumbImage: { width: '100%', height: '100%' },
-  thumbOverlay: {
-      ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)',
-      justifyContent: 'center', alignItems: 'center'
-  },
-  thumbBadge: { position: 'absolute', top: 0, right: 0, paddingHorizontal: 3, paddingVertical: 1, borderBottomLeftRadius: 5 },
-  thumbBadgeText: { color: 'white', fontSize: 8, fontWeight: 'bold' },
 
   totalContainer: {
     alignItems: 'center', marginBottom: 10, backgroundColor: 'rgba(0,0,0,0.05)',
@@ -615,10 +558,45 @@ const styles = StyleSheet.create({
   },
   totalText: { fontSize: 18, fontWeight: '900', textTransform: 'uppercase' },
 
-  buttonRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 12, borderRadius: 10, marginHorizontal: 4 },
-  btnText: { fontWeight: 'bold', marginLeft: 6, fontSize: 14 },
-  
+  // =========================================================
+  // BỘ 4 NÚT NẰM NGANG
+  // =========================================================
+  controlRow: {
+    flexDirection: 'row', 
+    justifyContent: 'space-between',
+    marginBottom: 15,
+  },
+  modeBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderRadius: 10,       
+    borderWidth: 1,        
+    marginHorizontal: 3,       
+    elevation: 1, 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 1 }, 
+    shadowOpacity: 0.1, 
+    shadowRadius: 1,
+  },
+  modeText: {
+    fontSize: 12, 
+    fontWeight: 'bold',
+    textAlign: 'center'
+  },
+  // =========================================================
+
+  buttonRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
+  actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 14, borderRadius: 12, marginHorizontal: 4 },
+  btnText: { fontWeight: 'bold', marginLeft: 8, fontSize: 15 },
+
+  thumbnailContainer: { marginBottom: 10, height: 60 },
+  thumbWrap: { width: 50, height: 50, borderRadius: 6, borderWidth: 2, marginRight: 8, overflow: 'hidden', position: 'relative', justifyContent: 'center', alignItems: 'center' },
+  thumbImage: { width: '100%', height: '100%' },
+  thumbOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  thumbBadge: { position: 'absolute', top: 0, right: 0, paddingHorizontal: 3, paddingVertical: 1, borderBottomLeftRadius: 5 },
+  thumbBadgeText: { color: 'white', fontSize: 8, fontWeight: 'bold' },
+
   separator: { height: 1, backgroundColor: 'rgba(150,150,150,0.1)', marginVertical: 8 },
   historyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   historyTitle: { fontSize: 16, fontWeight: 'bold' },
@@ -627,4 +605,3 @@ const styles = StyleSheet.create({
   historyInfo: { flex: 1 },
   historyCount: { fontSize: 14, fontWeight: 'bold', marginBottom: 2 }
 });
-//dsfdsf
