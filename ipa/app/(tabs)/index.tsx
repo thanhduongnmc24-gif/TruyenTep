@@ -191,50 +191,55 @@ export default function HomeScreen() {
   }
 
   async function sendFile() {
-    try {
-      const DocumentPicker = await import("expo-document-picker");
+  try {
+    const pcUrl = await getPcUrl();
 
-      const result = await DocumentPicker.getDocumentAsync({
-        type: "*/*",
-        copyToCacheDirectory: true,
-        multiple: false,
-      });
-
-      if (result.canceled) {
-        return;
-      }
-
-      const file = result.assets[0];
-
-      const upload = await uploadFileToPc({
-        uri: file.uri,
-        name: file.name,
-        mimeType: file.mimeType,
-      });
-
-      if (upload.ok) {
-        const createdAtMs = Date.now();
-
-        addItems([
-          {
-            id: `iphone_file_${createdAtMs}`,
-            kind: "file",
-            sender: "iphone",
-            fileName: upload.fileName,
-            size: upload.size,
-            createdAt: nowText(),
-            createdAtMs,
-          },
-        ]);
-
-        setStatus("Đã gửi file sang PC");
-      } else {
-        Alert.alert("Lỗi", upload.error ?? "Không gửi được file.");
-      }
-    } catch (error: any) {
-      Alert.alert("Lỗi gửi file", error.message);
+    if (!pcUrl) {
+      Alert.alert("Chưa có địa chỉ PC", "Vào tab Cài đặt nhập địa chỉ PC trước.");
+      return;
     }
+
+    const DocumentPicker = await import("expo-document-picker");
+
+    const result = await DocumentPicker.getDocumentAsync({
+      type: "*/*",
+      copyToCacheDirectory: true,
+      multiple: false,
+    });
+
+    if (result.canceled) return;
+
+    const pickedFile = result.assets[0];
+
+    const upload = await uploadFileToPc({
+      uri: pickedFile.uri,
+      name: pickedFile.name,
+      mimeType: pickedFile.mimeType,
+    });
+
+    if (upload.ok) {
+      const createdAtMs = Date.now();
+
+      addItems([
+        {
+          id: `iphone_file_${createdAtMs}`,
+          kind: "file",
+          sender: "iphone",
+          fileName: upload.fileName ?? pickedFile.name,
+          size: upload.size,
+          createdAt: nowText(),
+          createdAtMs,
+        },
+      ]);
+
+      setStatus("Đã gửi file sang PC");
+    } else {
+      Alert.alert("Lỗi", upload.error ?? "Không gửi được file.");
+    }
+  } catch (error: any) {
+    Alert.alert("Lỗi gửi file", error?.message ?? "Không gửi được file.");
   }
+}
 
   async function downloadFile(file: PcPendingFile) {
     try {
@@ -245,17 +250,14 @@ export default function HomeScreen() {
   }
 
   async function copyTextToClipboard(content: string) {
-    try {
-      const Clipboard = await import("expo-clipboard");
-      await Clipboard.setStringAsync(content);
-      Alert.alert("Đã copy", "Đã copy nội dung tin nhắn.");
-    } catch {
-      Alert.alert(
-        "Không copy được",
-        "Thiết bị không hỗ trợ hoặc thiếu clipboard module."
-      );
-    }
+  try {
+    const Clipboard = await import("expo-clipboard");
+    await Clipboard.setStringAsync(content);
+    Alert.alert("Đã copy", "Đã copy nội dung tin nhắn.");
+  } catch {
+    Alert.alert("Không copy được", "Thiếu module expo-clipboard hoặc thiết bị không hỗ trợ.");
   }
+}
 
  
 function toggle(id: string) {
@@ -402,7 +404,7 @@ function toggle(id: string) {
 
                   {!isMine ? (
                     <Pressable onPress={() => copyTextToClipboard(item.content)}>
-                      <Text style={styles.copyText}>Copy</Text>
+                     <Text style={styles.copyText}>Copy</Text>
                     </Pressable>
                   ) : null}
                 </View>

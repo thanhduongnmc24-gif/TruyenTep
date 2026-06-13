@@ -1,7 +1,6 @@
 import { Linking, Platform } from "react-native";
 
 const PC_URL_KEY = "pc_server_url";
-
 const memoryStorage: Record<string, string> = {};
 
 export type PcMessage = {
@@ -23,34 +22,23 @@ async function setStorageValue(key: string, value: string) {
   if (Platform.OS === "web") {
     try {
       localStorage.setItem(key, value);
-    } catch {
-      // bỏ qua
-    }
-
+    } catch {}
     return;
   }
 
   try {
     const SecureStore = await import("expo-secure-store");
     await SecureStore.setItemAsync(key, value);
-  } catch {
-    // Nếu SecureStore lỗi thì vẫn giữ trong memoryStorage
-  }
+  } catch {}
 }
 
 async function getStorageValue(key: string): Promise<string | null> {
-  if (memoryStorage[key]) {
-    return memoryStorage[key];
-  }
+  if (memoryStorage[key]) return memoryStorage[key];
 
   if (Platform.OS === "web") {
     try {
       const value = localStorage.getItem(key);
-
-      if (value) {
-        memoryStorage[key] = value;
-      }
-
+      if (value) memoryStorage[key] = value;
       return value;
     } catch {
       return null;
@@ -60,11 +48,7 @@ async function getStorageValue(key: string): Promise<string | null> {
   try {
     const SecureStore = await import("expo-secure-store");
     const value = await SecureStore.getItemAsync(key);
-
-    if (value) {
-      memoryStorage[key] = value;
-    }
-
+    if (value) memoryStorage[key] = value;
     return value;
   } catch {
     return null;
@@ -82,18 +66,11 @@ export async function getPcUrl(): Promise<string | null> {
 
 export async function pingPc() {
   const pcUrl = await getPcUrl();
-
-  if (!pcUrl) {
-    throw new Error("Chưa nhập địa chỉ PC");
-  }
+  if (!pcUrl) throw new Error("Chưa nhập địa chỉ PC");
 
   try {
     const res = await fetch(`${pcUrl}/api/ping`);
-
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch {
     throw new Error("Không kết nối được PC. Kiểm tra IP, Wi-Fi, Firewall hoặc PC Server.");
@@ -102,10 +79,7 @@ export async function pingPc() {
 
 export async function sendTextToPc(content: string) {
   const pcUrl = await getPcUrl();
-
-  if (!pcUrl) {
-    throw new Error("Chưa nhập địa chỉ PC");
-  }
+  if (!pcUrl) throw new Error("Chưa nhập địa chỉ PC");
 
   try {
     const res = await fetch(`${pcUrl}/api/messages`, {
@@ -116,10 +90,7 @@ export async function sendTextToPc(content: string) {
       body: JSON.stringify({ content }),
     });
 
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch {
     throw new Error("Gửi text thất bại. Kiểm tra PC Server.");
@@ -128,20 +99,13 @@ export async function sendTextToPc(content: string) {
 
 export async function pullMessagesFromPc(): Promise<PcMessage[]> {
   const pcUrl = await getPcUrl();
-
-  if (!pcUrl) {
-    return [];
-  }
+  if (!pcUrl) return [];
 
   try {
     const res = await fetch(`${pcUrl}/api/messages/pull`);
-
-    if (!res.ok) {
-      return [];
-    }
+    if (!res.ok) return [];
 
     const json = await res.json();
-
     return json.messages ?? [];
   } catch {
     return [];
@@ -154,10 +118,7 @@ export async function uploadFileToPc(file: {
   mimeType?: string | null;
 }) {
   const pcUrl = await getPcUrl();
-
-  if (!pcUrl) {
-    throw new Error("Chưa nhập địa chỉ PC");
-  }
+  if (!pcUrl) throw new Error("Chưa nhập địa chỉ PC");
 
   try {
     const formData = new FormData();
@@ -179,32 +140,22 @@ export async function uploadFileToPc(file: {
       body: formData,
     });
 
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch {
-    throw new Error("Upload file thất bại. Kiểm tra PC Server.");
+    throw new Error("Upload file thất bại. Kiểm tra PC Server hoặc quyền chọn tệp.");
   }
 }
 
 export async function getPendingFilesFromPc(): Promise<PcPendingFile[]> {
   const pcUrl = await getPcUrl();
-
-  if (!pcUrl) {
-    return [];
-  }
+  if (!pcUrl) return [];
 
   try {
     const res = await fetch(`${pcUrl}/api/files/pending`);
-
-    if (!res.ok) {
-      return [];
-    }
+    if (!res.ok) return [];
 
     const json = await res.json();
-
     return json.files ?? [];
   } catch {
     return [];
@@ -213,20 +164,14 @@ export async function getPendingFilesFromPc(): Promise<PcPendingFile[]> {
 
 export async function downloadFileFromPc(file: PcPendingFile) {
   const pcUrl = await getPcUrl();
-
-  if (!pcUrl) {
-    throw new Error("Chưa nhập địa chỉ PC");
-  }
+  if (!pcUrl) throw new Error("Chưa nhập địa chỉ PC");
 
   const url = `${pcUrl}/api/files/download/${file.id}`;
 
   try {
     if (Platform.OS === "web") {
       const res = await fetch(url);
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
@@ -239,12 +184,10 @@ export async function downloadFileFromPc(file: PcPendingFile) {
       a.remove();
 
       URL.revokeObjectURL(objectUrl);
-
       return { ok: true };
     }
 
     await Linking.openURL(url);
-
     return { ok: true };
   } catch {
     throw new Error("Tải file thất bại.");

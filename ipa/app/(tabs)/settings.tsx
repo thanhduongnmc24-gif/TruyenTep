@@ -95,7 +95,7 @@ export default function SettingsScreen() {
       </Pressable>
 
       <Text style={styles.note}>
-        PC và iPhone phải cùng Wi-Fi. Nếu PC khởi động lại và đổi IP, hãy nhập
+        PC và iPhone phải cùng Wi‑Fi. Nếu PC khởi động lại và đổi IP, hãy nhập
         lại địa chỉ mới tại đây.
       </Text>
     </View>
