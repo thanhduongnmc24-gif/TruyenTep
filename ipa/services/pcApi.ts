@@ -2,7 +2,6 @@ import { Linking, Platform } from "react-native";
 
 const PC_URL_KEY = "pc_server_url";
 
-// Storage đơn giản, tránh SecureStore để loại trừ crash native lúc mở app
 const memoryStorage: Record<string, string> = {};
 
 export type PcMessage = {
@@ -18,55 +17,71 @@ export type PcPendingFile = {
   createdAt: string;
 };
 
-function safeGetLocalStorage(key: string): string | null {
-  try {
-    if (Platform.OS === "web" && typeof localStorage !== "undefined") {
-      return localStorage.getItem(key);
+async function setStorageValue(key: string, value: string) {
+  memoryStorage[key] = value;
+
+  if (Platform.OS === "web") {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // bỏ qua
     }
+
+    return;
+  }
+
+  try {
+    const SecureStore = await import("expo-secure-store");
+    await SecureStore.setItemAsync(key, value);
+  } catch {
+    // Nếu SecureStore lỗi thì vẫn giữ trong memoryStorage
+  }
+}
+
+async function getStorageValue(key: string): Promise<string | null> {
+  if (memoryStorage[key]) {
+    return memoryStorage[key];
+  }
+
+  if (Platform.OS === "web") {
+    try {
+      const value = localStorage.getItem(key);
+
+      if (value) {
+        memoryStorage[key] = value;
+      }
+
+      return value;
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    const SecureStore = await import("expo-secure-store");
+    const value = await SecureStore.getItemAsync(key);
+
+    if (value) {
+      memoryStorage[key] = value;
+    }
+
+    return value;
   } catch {
     return null;
   }
-
-  return null;
 }
 
-function safeSetLocalStorage(key: string, value: string) {
-  try {
-    if (Platform.OS === "web" && typeof localStorage !== "undefined") {
-      localStorage.setItem(key, value);
-    }
-  } catch {
-    // bỏ qua
-  }
-}
-
-export function savePcUrl(url: string) {
+export async function savePcUrl(url: string) {
   const cleanUrl = url.trim().replace(/\/+$/, "");
-
-  if (Platform.OS === "web") {
-    safeSetLocalStorage(PC_URL_KEY, cleanUrl);
-  }
-
-  memoryStorage[PC_URL_KEY] = cleanUrl;
+  await setStorageValue(PC_URL_KEY, cleanUrl);
 }
 
-export function getPcUrl(): string | null {
-  if (memoryStorage[PC_URL_KEY]) {
-    return memoryStorage[PC_URL_KEY];
-  }
-
-  const webValue = safeGetLocalStorage(PC_URL_KEY);
-
-  if (webValue) {
-    memoryStorage[PC_URL_KEY] = webValue;
-    return webValue;
-  }
-
-  return null;
+export async function getPcUrl(): Promise<string | null> {
+  return await getStorageValue(PC_URL_KEY);
 }
 
 export async function pingPc() {
-  const pcUrl = getPcUrl();
+  const pcUrl = await getPcUrl();
 
   if (!pcUrl) {
     throw new Error("Chưa nhập địa chỉ PC");
@@ -86,7 +101,7 @@ export async function pingPc() {
 }
 
 export async function sendTextToPc(content: string) {
-  const pcUrl = getPcUrl();
+  const pcUrl = await getPcUrl();
 
   if (!pcUrl) {
     throw new Error("Chưa nhập địa chỉ PC");
@@ -112,7 +127,7 @@ export async function sendTextToPc(content: string) {
 }
 
 export async function pullMessagesFromPc(): Promise<PcMessage[]> {
-  const pcUrl = getPcUrl();
+  const pcUrl = await getPcUrl();
 
   if (!pcUrl) {
     return [];
@@ -129,7 +144,6 @@ export async function pullMessagesFromPc(): Promise<PcMessage[]> {
 
     return json.messages ?? [];
   } catch {
-    // Quan trọng: không throw để app không crash
     return [];
   }
 }
@@ -139,7 +153,7 @@ export async function uploadFileToPc(file: {
   name: string;
   mimeType?: string | null;
 }) {
-  const pcUrl = getPcUrl();
+  const pcUrl = await getPcUrl();
 
   if (!pcUrl) {
     throw new Error("Chưa nhập địa chỉ PC");
@@ -176,7 +190,7 @@ export async function uploadFileToPc(file: {
 }
 
 export async function getPendingFilesFromPc(): Promise<PcPendingFile[]> {
-  const pcUrl = getPcUrl();
+  const pcUrl = await getPcUrl();
 
   if (!pcUrl) {
     return [];
@@ -193,13 +207,12 @@ export async function getPendingFilesFromPc(): Promise<PcPendingFile[]> {
 
     return json.files ?? [];
   } catch {
-    // Quan trọng: không throw để app không crash
     return [];
   }
 }
 
 export async function downloadFileFromPc(file: PcPendingFile) {
-  const pcUrl = getPcUrl();
+  const pcUrl = await getPcUrl();
 
   if (!pcUrl) {
     throw new Error("Chưa nhập địa chỉ PC");

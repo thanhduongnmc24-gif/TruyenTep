@@ -53,7 +53,7 @@ export default function HomeScreen() {
   useEffect(() => {
     const timer = setInterval(async () => {
       try {
-        const pcUrl = getPcUrl();
+        const pcUrl = await getPcUrl();
 
         if (!pcUrl) {
           setStatus("Chưa nhập địa chỉ PC");
