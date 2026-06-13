@@ -10,7 +10,7 @@
     "newArchEnabled": false,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.duong.truyente",
+      "bundleIdentifier": "TruyenTep.duongnt.io.vn",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSLocalNetworkUsageDescription": "Ứng dụng cần truy cập mạng LAN để kết nối với PC.",
@@ -45,8 +45,6 @@
     },
     "plugins": [
       "expo-router",
-      "expo-document-picker",
-      "expo-clipboard",
       [
         "expo-calendar",
         {
