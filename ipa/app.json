@@ -1,20 +1,23 @@
 {
-  "supportsTablet": true,
-  "bundleIdentifier": "TruyenTep.duongnt.io.vn",
-  "appleTeamId": "TruyenTep",
-  "infoPlist": {
-    "ITSAppUsesNonExemptEncryption": false,
-
-    "NSLocalNetworkUsageDescription": "Ứng dụng cần truy cập mạng LAN để kết nối PC.",
-    "NSAppTransportSecurity": {
-      "NSAllowsArbitraryLoads": true
-    },
-
-    "NSCalendarsUsageDescription": "App cần quyền truy cập Lịch để nhắc nhở ca làm việc.",
-    "NSCalendarsFullAccessUsageDescription": "App cần quyền ghi lịch để lưu nhắc nhở ca làm việc.",
-
-    "UIBackgroundModes": [
-      "fetch"
-    ]
+  "expo": {
+    "name": "TruyenTep",
+    "slug": "truyentep",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "TruyenTep.duongnt.io.vn",
+      "appleTeamId": "TruyenTep",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocalNetworkUsageDescription": "Ứng dụng cần truy cập mạng LAN để kết nối PC.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        },
+        "NSCalendarsUsageDescription": "App cần quyền truy cập Lịch để nhắc nhở ca làm việc.",
+        "NSCalendarsFullAccessUsageDescription": "App cần quyền ghi lịch để lưu nhắc nhở ca làm việc.",
+        "UIBackgroundModes": [
+          "fetch"
+        ]
+      }
+    }
   }
 }
