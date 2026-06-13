@@ -1,9 +1,9 @@
-import { Platform, Linking } from "react-native";
+import { Linking, Platform } from "react-native";
 
 const PC_URL_KEY = "pc_server_url";
 
-// ✅ tạo storage riêng (type-safe)
-const storage: Record<string, string> = {};
+// Storage đơn giản, tránh SecureStore để loại trừ crash native lúc mở app
+const memoryStorage: Record<string, string> = {};
 
 export type PcMessage = {
   id: string;
@@ -18,81 +18,122 @@ export type PcPendingFile = {
   createdAt: string;
 };
 
-// ✅ set storage
-function setStorageValue(key: string, value: string) {
-  if (Platform.OS === "web") {
-    localStorage.setItem(key, value);
-  } else {
-    storage[key] = value;
+function safeGetLocalStorage(key: string): string | null {
+  try {
+    if (Platform.OS === "web" && typeof localStorage !== "undefined") {
+      return localStorage.getItem(key);
+    }
+  } catch {
+    return null;
   }
+
+  return null;
 }
 
-// ✅ get storage
-function getStorageValue(key: string): string | null {
-  if (Platform.OS === "web") {
-    return localStorage.getItem(key);
+function safeSetLocalStorage(key: string, value: string) {
+  try {
+    if (Platform.OS === "web" && typeof localStorage !== "undefined") {
+      localStorage.setItem(key, value);
+    }
+  } catch {
+    // bỏ qua
   }
-
-  return storage[key] || null;
 }
 
 export function savePcUrl(url: string) {
   const cleanUrl = url.trim().replace(/\/+$/, "");
-  setStorageValue(PC_URL_KEY, cleanUrl);
+
+  if (Platform.OS === "web") {
+    safeSetLocalStorage(PC_URL_KEY, cleanUrl);
+  }
+
+  memoryStorage[PC_URL_KEY] = cleanUrl;
 }
 
-export function getPcUrl() {
-  return getStorageValue(PC_URL_KEY);
+export function getPcUrl(): string | null {
+  if (memoryStorage[PC_URL_KEY]) {
+    return memoryStorage[PC_URL_KEY];
+  }
+
+  const webValue = safeGetLocalStorage(PC_URL_KEY);
+
+  if (webValue) {
+    memoryStorage[PC_URL_KEY] = webValue;
+    return webValue;
+  }
+
+  return null;
 }
 
-// ✅ ping PC
 export async function pingPc() {
   const pcUrl = getPcUrl();
 
-  if (!pcUrl) throw new Error("Chưa nhập địa chỉ PC");
+  if (!pcUrl) {
+    throw new Error("Chưa nhập địa chỉ PC");
+  }
 
-  const res = await fetch(`${pcUrl}/api/ping`);
+  try {
+    const res = await fetch(`${pcUrl}/api/ping`);
 
-  if (!res.ok) throw new Error("Không kết nối được PC");
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
 
-  return await res.json();
+    return await res.json();
+  } catch {
+    throw new Error("Không kết nối được PC. Kiểm tra IP, Wi-Fi, Firewall hoặc PC Server.");
+  }
 }
 
-// ✅ gửi text
 export async function sendTextToPc(content: string) {
   const pcUrl = getPcUrl();
 
-  if (!pcUrl) throw new Error("Chưa nhập địa chỉ PC");
+  if (!pcUrl) {
+    throw new Error("Chưa nhập địa chỉ PC");
+  }
 
-  const res = await fetch(`${pcUrl}/api/messages`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-    },
-    body: JSON.stringify({ content }),
-  });
+  try {
+    const res = await fetch(`${pcUrl}/api/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+      },
+      body: JSON.stringify({ content }),
+    });
 
-  if (!res.ok) throw new Error("Gửi text thất bại");
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
 
-  return await res.json();
+    return await res.json();
+  } catch {
+    throw new Error("Gửi text thất bại. Kiểm tra PC Server.");
+  }
 }
 
-// ✅ pull text
 export async function pullMessagesFromPc(): Promise<PcMessage[]> {
   const pcUrl = getPcUrl();
 
-  if (!pcUrl) return [];
+  if (!pcUrl) {
+    return [];
+  }
 
-  const res = await fetch(`${pcUrl}/api/messages/pull`);
+  try {
+    const res = await fetch(`${pcUrl}/api/messages/pull`);
 
-  if (!res.ok) throw new Error("Lỗi kéo tin");
+    if (!res.ok) {
+      return [];
+    }
 
-  const json = await res.json();
+    const json = await res.json();
 
-  return json.messages ?? [];
+    return json.messages ?? [];
+  } catch {
+    // Quan trọng: không throw để app không crash
+    return [];
+  }
 }
 
-// ✅ upload file (SAFE iOS)
 export async function uploadFileToPc(file: {
   uri: string;
   name: string;
@@ -100,50 +141,99 @@ export async function uploadFileToPc(file: {
 }) {
   const pcUrl = getPcUrl();
 
-  if (!pcUrl) throw new Error("Chưa nhập địa chỉ PC");
+  if (!pcUrl) {
+    throw new Error("Chưa nhập địa chỉ PC");
+  }
 
-  const formData = new FormData();
+  try {
+    const formData = new FormData();
 
-  formData.append("file", {
-    uri: file.uri,
-    name: file.name,
-    type: file.mimeType || "application/octet-stream",
-  } as any);
+    if (Platform.OS === "web") {
+      const response = await fetch(file.uri);
+      const blob = await response.blob();
+      formData.append("file", blob, file.name);
+    } else {
+      formData.append("file", {
+        uri: file.uri,
+        name: file.name,
+        type: file.mimeType || "application/octet-stream",
+      } as any);
+    }
 
-  const res = await fetch(`${pcUrl}/api/files/upload`, {
-    method: "POST",
-    body: formData,
-  });
+    const res = await fetch(`${pcUrl}/api/files/upload`, {
+      method: "POST",
+      body: formData,
+    });
 
-  if (!res.ok) throw new Error("Upload thất bại");
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
 
-  return await res.json();
+    return await res.json();
+  } catch {
+    throw new Error("Upload file thất bại. Kiểm tra PC Server.");
+  }
 }
 
-// ✅ lấy danh sách file
 export async function getPendingFilesFromPc(): Promise<PcPendingFile[]> {
   const pcUrl = getPcUrl();
 
-  if (!pcUrl) return [];
+  if (!pcUrl) {
+    return [];
+  }
 
-  const res = await fetch(`${pcUrl}/api/files/pending`);
+  try {
+    const res = await fetch(`${pcUrl}/api/files/pending`);
 
-  if (!res.ok) throw new Error("Không lấy file");
+    if (!res.ok) {
+      return [];
+    }
 
-  const json = await res.json();
+    const json = await res.json();
 
-  return json.files ?? [];
+    return json.files ?? [];
+  } catch {
+    // Quan trọng: không throw để app không crash
+    return [];
+  }
 }
 
-// ✅ tải file
 export async function downloadFileFromPc(file: PcPendingFile) {
   const pcUrl = getPcUrl();
 
-  if (!pcUrl) throw new Error("Chưa nhập địa chỉ PC");
+  if (!pcUrl) {
+    throw new Error("Chưa nhập địa chỉ PC");
+  }
 
   const url = `${pcUrl}/api/files/download/${file.id}`;
 
-  await Linking.openURL(url);
+  try {
+    if (Platform.OS === "web") {
+      const res = await fetch(url);
 
-  return { ok: true };
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = file.fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      URL.revokeObjectURL(objectUrl);
+
+      return { ok: true };
+    }
+
+    await Linking.openURL(url);
+
+    return { ok: true };
+  } catch {
+    throw new Error("Tải file thất bại.");
+  }
 }
