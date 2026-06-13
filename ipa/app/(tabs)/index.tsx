@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -21,571 +23,341 @@ import {
   uploadFileToPc,
 } from "../../services/pcApi";
 
-type AppButtonVariant = "primary" | "secondary" | "success" | "purple" | "danger";
-
-function AppButton({
-  title,
-  icon,
-  variant = "primary",
-  onPress,
-}: {
-  title: string;
-  icon?: string;
-  variant?: AppButtonVariant;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.appButton,
-        styles[`button_${variant}`],
-        pressed && styles.appButtonPressed,
-      ]}
-    >
-      <Text style={styles.appButtonIcon}>{icon}</Text>
-      <Text style={styles.appButtonText}>{title}</Text>
-    </Pressable>
-  );
-}
+type TimelineItem =
+  | {
+      id: string;
+      kind: "text";
+      sender: "iphone" | "pc";
+      content: string;
+      createdAt: string;
+      createdAtMs: number;
+    }
+  | {
+      id: string;
+      kind: "file";
+      sender: "iphone" | "pc";
+      fileName: string;
+      size?: number;
+      file?: PcPendingFile;
+      createdAt: string;
+      createdAtMs: number;
+    };
 
 export default function HomeScreen() {
   const [text, setText] = useState("");
-  const [messages, setMessages] = useState<PcMessage[]>([]);
-  const [pendingFiles, setPendingFiles] = useState<PcPendingFile[]>([]);
-  const [status, setStatus] = useState("Sẵn sàng kết nối PC");
+  const [timeline, setTimeline] = useState<TimelineItem[]>([]);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  const scrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     const timer = setInterval(() => {
-      handlePullMessages(false);
-      handleLoadPendingFiles(false);
-    }, 3000);
+      pullMessages();
+      loadFiles();
+    }, 1000);
 
     return () => clearInterval(timer);
   }, []);
 
-  async function handleSendText() {
-    if (!text.trim()) {
-      Alert.alert("Thiếu nội dung", "Nhập text trước khi gửi.");
-      return;
-    }
+  useEffect(() => {
+    setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, 80);
+  }, [timeline]);
 
-    try {
-      const result = await sendTextToPc(text.trim());
+  function now() {
+    return new Date().toLocaleTimeString();
+  }
 
-      if (result.ok) {
-        setText("");
-        setStatus("Đã gửi text sang PC");
-      } else {
-        Alert.alert("Lỗi", result.error ?? "Không gửi được text.");
-      }
-    } catch (error: any) {
-      Alert.alert("Lỗi gửi text", error.message);
+  function parseTime(t: string) {
+    const d = Date.parse(t.replace(" ", "T"));
+    return isNaN(d) ? Date.now() : d;
+  }
+
+  function addItems(items: TimelineItem[]) {
+    setTimeline((old) => {
+      const ids = new Set(old.map((x) => x.id));
+      const filtered = items.filter((x) => !ids.has(x.id));
+      return [...old, ...filtered].sort((a, b) => a.createdAtMs - b.createdAtMs);
+    });
+  }
+
+  async function sendText() {
+    const content = text.trim();
+    if (!content) return;
+
+    const res = await sendTextToPc(content);
+
+    if (res.ok) {
+      addItems([
+        {
+          id: "iphone_" + Date.now(),
+          kind: "text",
+          sender: "iphone",
+          content,
+          createdAt: now(),
+          createdAtMs: Date.now(),
+        },
+      ]);
+      setText("");
     }
   }
 
-  async function handlePullMessages(showAlert = true) {
-    try {
-      const newMessages = await pullMessagesFromPc();
+  async function pullMessages() {
+    const data: PcMessage[] = await pullMessagesFromPc();
 
-      if (newMessages.length > 0) {
-        setMessages((old) => [...newMessages, ...old]);
-        setStatus(`Vừa nhận ${newMessages.length} tin nhắn từ PC`);
-      } else {
-        setStatus("Không có tin nhắn mới");
-      }
-
-      if (showAlert) {
-        Alert.alert("Hoàn tất", `Nhận ${newMessages.length} tin nhắn.`);
-      }
-    } catch (error: any) {
-      setStatus("Lỗi kéo dữ liệu");
-
-      if (showAlert) {
-        Alert.alert("Lỗi kéo dữ liệu", error.message);
-      }
-    }
-  }
-
-  async function handleCopyText(content: string) {
-    try {
-      await Clipboard.setStringAsync(content);
-      Alert.alert("Đã copy", "Nội dung đã được copy vào clipboard.");
-    } catch (error: any) {
-      Alert.alert("Lỗi copy", error.message);
-    }
-  }
-
-  async function handlePickAndUploadFile() {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: "*/*",
-        copyToCacheDirectory: true,
-        multiple: false,
-      });
-
-      if (result.canceled) {
-        return;
-      }
-
-      const file = result.assets[0];
-
-      const uploadResult = await uploadFileToPc({
-        uri: file.uri,
-        name: file.name,
-        mimeType: file.mimeType,
-      });
-
-      if (uploadResult.ok) {
-        setStatus(`Đã gửi file: ${uploadResult.fileName}`);
-        Alert.alert(
-          "Đã gửi file",
-          `File đã gửi sang PC:\n${uploadResult.fileName}`
-        );
-      } else {
-        Alert.alert("Lỗi", uploadResult.error ?? "Không gửi được file.");
-      }
-    } catch (error: any) {
-      Alert.alert("Lỗi gửi file", error.message);
-    }
-  }
-
-  async function handleLoadPendingFiles(showAlert = true) {
-    try {
-      const files = await getPendingFilesFromPc();
-      setPendingFiles(files);
-      setStatus(`Có ${files.length} file từ PC`);
-
-      if (showAlert) {
-        Alert.alert("Hoàn tất", `Có ${files.length} file từ PC.`);
-      }
-    } catch (error: any) {
-      if (showAlert) {
-        Alert.alert("Lỗi lấy file", error.message);
-      }
-    }
-  }
-
-  async function handleDownloadFile(file: PcPendingFile) {
-    try {
-      await downloadFileFromPc(file);
-
-      Alert.alert(
-        "Đang tải file",
-        `File: ${file.fileName}\nNếu chạy trên web, file sẽ tải xuống trình duyệt. Nếu chạy trên iPhone, hệ thống sẽ mở link tải.`
+    if (data.length > 0) {
+      addItems(
+        data.map((m) => ({
+          id: "pc_" + m.id,
+          kind: "text",
+          sender: "pc",
+          content: m.content,
+          createdAt: m.createdAt,
+          createdAtMs: parseTime(m.createdAt),
+        }))
       );
-    } catch (error: any) {
-      Alert.alert("Lỗi tải file", error.message);
     }
   }
 
-  function formatSize(size: number) {
-    if (size < 1024) return `${size} B`;
-    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-    return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  async function loadFiles() {
+    const files = await getPendingFilesFromPc();
+
+    if (files.length > 0) {
+      addItems(
+        files.map((f) => ({
+          id: "pc_file_" + f.id,
+          kind: "file",
+          sender: "pc",
+          fileName: f.fileName,
+          size: f.size,
+          file: f,
+          createdAt: f.createdAt,
+          createdAtMs: parseTime(f.createdAt),
+        }))
+      );
+    }
+  }
+
+  async function sendFile() {
+    const res = await DocumentPicker.getDocumentAsync({ type: "*/*" });
+
+    if (res.canceled) return;
+
+    const file = res.assets[0];
+
+    const upload = await uploadFileToPc({
+      uri: file.uri,
+      name: file.name,
+      mimeType: file.mimeType,
+    });
+
+    if (upload.ok) {
+      addItems([
+        {
+          id: "iphone_file_" + Date.now(),
+          kind: "file",
+          sender: "iphone",
+          fileName: upload.fileName,
+          size: upload.size,
+          createdAt: now(),
+          createdAtMs: Date.now(),
+        },
+      ]);
+    }
+  }
+
+  async function downloadFile(f: PcPendingFile) {
+    await downloadFileFromPc(f);
+  }
+
+  function toggle(id: string) {
+    setExpanded((old) => ({ ...old, [id]: !old[id] }));
+  }
+
+  async function copy(text: string) {
+    await Clipboard.setStringAsync(text);
   }
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.container}>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>Truyền Tệp</Text>
-          <Text style={styles.subtitle}>PC ↔ iPhone</Text>
-        </View>
+    <KeyboardAvoidingView
+      style={styles.screen}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <ScrollView ref={scrollRef} style={styles.chat}>
+        {timeline.map((item) => {
+          const isMine = item.sender === "iphone";
 
-        <View style={styles.statusPill}>
-          <Text style={styles.statusDot}>●</Text>
-          <Text style={styles.statusText}>LAN</Text>
-        </View>
-      </View>
-
-      <View style={styles.statusCard}>
-        <Text style={styles.statusLabel}>Trạng thái</Text>
-        <Text style={styles.statusValue}>{status}</Text>
-      </View>
-
-      <View style={styles.composeCard}>
-        <View style={styles.composeLeft}>
-          <Text style={styles.cardTitle}>Gửi text sang PC</Text>
-
-          <TextInput
-            value={text}
-            onChangeText={setText}
-            placeholder="Nhập nội dung cần gửi..."
-            placeholderTextColor="#94a3b8"
-            multiline
-            style={styles.input}
-          />
-        </View>
-
-        <View style={styles.composeRight}>
-          <AppButton
-            icon="➤"
-            title="Gửi"
-            variant="primary"
-            onPress={handleSendText}
-          />
-
-          <AppButton
-            icon="↧"
-            title="Kéo text"
-            variant="secondary"
-            onPress={() => handlePullMessages(true)}
-          />
-
-          <AppButton
-            icon="📎"
-            title="Gửi file"
-            variant="success"
-            onPress={handlePickAndUploadFile}
-          />
-
-          <AppButton
-            icon="☁"
-            title="File PC"
-            variant="purple"
-            onPress={() => handleLoadPendingFiles(true)}
-          />
-        </View>
-      </View>
-
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>File từ PC</Text>
-        <Text style={styles.sectionCount}>{pendingFiles.length}</Text>
-      </View>
-
-      {pendingFiles.length === 0 ? (
-        <Text style={styles.empty}>Chưa có file nào từ PC.</Text>
-      ) : (
-        pendingFiles.map((item) => (
-          <View key={item.id} style={styles.fileItem}>
-            <View style={styles.fileIconBox}>
-              <Text style={styles.fileIcon}>📄</Text>
-            </View>
-
-            <View style={styles.fileContent}>
-              <Text style={styles.fileName} numberOfLines={1}>
-                {item.fileName}
-              </Text>
-              <Text style={styles.messageTime}>
-                {formatSize(item.size)} • {item.createdAt}
-              </Text>
-            </View>
-
-            <Pressable
-              onPress={() => handleDownloadFile(item)}
-              style={({ pressed }) => [
-                styles.downloadButton,
-                pressed && styles.smallPressed,
-              ]}
-            >
-              <Text style={styles.downloadButtonText}>Tải</Text>
-            </Pressable>
-          </View>
-        ))
-      )}
-
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Tin nhắn nhận từ PC</Text>
-        <Text style={styles.sectionCount}>{messages.length}</Text>
-      </View>
-
-      {messages.length === 0 ? (
-        <Text style={styles.empty}>Chưa có tin nhắn nào.</Text>
-      ) : (
-        messages.map((item) => (
-          <View key={item.id} style={styles.messageItem}>
-            <Text style={styles.messageText}>{item.content}</Text>
-
-            <View style={styles.messageFooter}>
-              <Text style={styles.messageTime}>{item.createdAt}</Text>
-
-              <Pressable
-                style={({ pressed }) => [
-                  styles.copyButton,
-                  pressed && styles.smallPressed,
+          if (item.kind === "file") {
+            return (
+              <View
+                key={item.id}
+                style={[
+                  styles.row,
+                  isMine ? styles.right : styles.left,
                 ]}
-                onPress={() => handleCopyText(item.content)}
               >
-                <Text style={styles.copyButtonText}>Copy</Text>
-              </Pressable>
+                <View
+                  style={[
+                    styles.fileBubble,
+                    isMine ? styles.blue : styles.yellow,
+                  ]}
+                >
+                  <Text style={styles.fileText}>
+                    📄 {item.fileName}
+                  </Text>
+
+                  {!isMine && item.file && (
+                    <Pressable onPress={() => downloadFile(item.file!)}>
+                      <Text style={styles.download}>Tải file</Text>
+                    </Pressable>
+                  )}
+                </View>
+              </View>
+            );
+          }
+
+          return (
+            <View
+              key={item.id}
+              style={[styles.row, isMine ? styles.right : styles.left]}
+            >
+              <View
+                style={[
+                  styles.bubble,
+                  isMine ? styles.blue : styles.white,
+                ]}
+              >
+                <Text
+                  numberOfLines={expanded[item.id] ? 0 : 5}
+                  style={[
+                    styles.text,
+                    isMine ? styles.whiteText : styles.blackText,
+                  ]}
+                >
+                  {item.content}
+                </Text>
+
+                {item.content.length > 200 && (
+                  <Pressable onPress={() => toggle(item.id)}>
+                    <Text style={styles.more}>
+                      {expanded[item.id] ? "Thu gọn" : "Xem thêm"}
+                    </Text>
+                  </Pressable>
+                )}
+
+                {!isMine && (
+                  <Pressable onPress={() => copy(item.content)}>
+                    <Text style={styles.copy}>Copy</Text>
+                  </Pressable>
+                )}
+              </View>
             </View>
-          </View>
-        ))
-      )}
-    </ScrollView>
+          );
+        })}
+      </ScrollView>
+
+      <View style={styles.inputBox}>
+        <Pressable style={styles.btn} onPress={sendFile}>
+          <Text>📎</Text>
+        </Pressable>
+
+        <TextInput
+          value={text}
+          onChangeText={setText}
+          placeholder="Nhắn tin..."
+          style={styles.input}
+        />
+
+        <Pressable style={styles.send} onPress={sendText}>
+          <Text style={{ color: "#fff" }}>➤</Text>
+        </Pressable>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: "#f8fafc",
-  },
-  container: {
-    padding: 18,
-    paddingBottom: 36,
-    gap: 14,
+  screen: { flex: 1, backgroundColor: "#eef2f7" },
+
+  chat: { flex: 1, padding: 10 },
+
+  row: { marginVertical: 5 },
+  left: { alignItems: "flex-start" },
+  right: { alignItems: "flex-end" },
+
+  bubble: {
+    maxWidth: "75%",
+    padding: 10,
+    borderRadius: 15,
   },
 
-  header: {
-    marginTop: 4,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  title: {
-    fontSize: 30,
-    fontWeight: "900",
-    color: "#0f172a",
-    letterSpacing: -0.7,
-  },
-  subtitle: {
-    marginTop: 2,
-    fontSize: 15,
-    color: "#64748b",
-    fontWeight: "600",
-  },
-  statusPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
-    backgroundColor: "#dcfce7",
+  blue: { backgroundColor: "#2563eb" },
+  white: {
+    backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: "#86efac",
+    borderColor: "#ddd",
   },
-  statusDot: {
-    color: "#16a34a",
+
+  text: { fontSize: 15 },
+  whiteText: { color: "#fff" },
+  blackText: { color: "#000" },
+
+  more: {
+    marginTop: 4,
+    fontSize: 12,
+    color: "#999",
+  },
+
+  copy: {
+    marginTop: 4,
     fontSize: 10,
-  },
-  statusText: {
-    color: "#166534",
-    fontWeight: "800",
-    fontSize: 12,
+    color: "#4f46e5",
   },
 
-  statusCard: {
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    shadowColor: "#0f172a",
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 2,
+  fileBubble: {
+    padding: 10,
+
+    borderRadius: 15,
   },
-  statusLabel: {
-    color: "#64748b",
-    fontSize: 12,
-    fontWeight: "700",
-    textTransform: "uppercase",
-  },
-  statusValue: {
-    marginTop: 4,
-    color: "#0f172a",
-    fontSize: 15,
-    fontWeight: "700",
+  yellow: { backgroundColor: "#fde68a" },
+
+  fileText: { fontWeight: "bold" },
+
+  download: {
+    marginTop: 6,
+    color: "#fff",
+    backgroundColor: "#f59e0b",
+    padding: 5,
+    borderRadius: 5,
+    alignSelf: "flex-start",
   },
 
-  composeCard: {
+  inputBox: {
     flexDirection: "row",
-    gap: 12,
-    padding: 14,
-    borderRadius: 22,
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    shadowColor: "#0f172a",
-    shadowOpacity: 0.07,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
+    padding: 8,
+    backgroundColor: "#fff",
   },
-  composeLeft: {
-    flex: 1,
-  },
-  composeRight: {
-    width: 112,
-    gap: 8,
-  },
-  cardTitle: {
-    color: "#0f172a",
-    fontSize: 16,
-    fontWeight: "800",
-    marginBottom: 8,
-  },
+
   input: {
-    minHeight: 148,
-    borderWidth: 1,
-    borderColor: "#dbe3ef",
-    borderRadius: 16,
-    padding: 13,
-    fontSize: 16,
-    color: "#0f172a",
-    backgroundColor: "#f8fafc",
-    textAlignVertical: "top",
-  },
-
-  appButton: {
-    minHeight: 42,
-    borderRadius: 14,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    shadowColor: "#0f172a",
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
-  },
-  appButtonPressed: {
-    transform: [{ scale: 0.97 }],
-    opacity: 0.88,
-  },
-  appButtonIcon: {
-    fontSize: 13,
-  },
-  appButtonText: {
-    color: "#ffffff",
-    fontWeight: "900",
-    fontSize: 13,
-  },
-  button_primary: {
-    backgroundColor: "#2563eb",
-  },
-  button_secondary: {
-    backgroundColor: "#0f172a",
-  },
-  button_success: {
-    backgroundColor: "#16a34a",
-  },
-  button_purple: {
-    backgroundColor: "#7c3aed",
-  },
-  button_danger: {
-    backgroundColor: "#dc2626",
-  },
-
-  sectionHeader: {
-    marginTop: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#0f172a",
-  },
-  sectionCount: {
-    minWidth: 28,
-    textAlign: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: "#e2e8f0",
-    color: "#334155",
-    fontWeight: "900",
-    fontSize: 12,
-  },
-  empty: {
-    color: "#64748b",
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 16,
-    padding: 14,
-  },
-
-  fileItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    padding: 13,
-    borderRadius: 18,
-    backgroundColor: "#eff6ff",
-    borderWidth: 1,
-    borderColor: "#bfdbfe",
-  },
-  fileIconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#dbeafe",
-  },
-  fileIcon: {
-    fontSize: 22,
-  },
-  fileContent: {
     flex: 1,
-  },
-  fileName: {
-    fontSize: 15,
-    fontWeight: "900",
-    color: "#1e3a8a",
-  },
-  downloadButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 999,
-    backgroundColor: "#2563eb",
-  },
-  downloadButtonText: {
-    color: "#ffffff",
-    fontWeight: "900",
-    fontSize: 13,
+    backgroundColor: "#f1f5f9",
+    borderRadius: 20,
+    padding: 10,
+    marginHorizontal: 8,
   },
 
-  messageItem: {
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 18,
-    backgroundColor: "#ffffff",
-  },
-  messageText: {
-    fontSize: 16,
-    lineHeight: 23,
-    color: "#0f172a",
-    fontWeight: "500",
-  },
-  messageFooter: {
-    marginTop: 10,
-    flexDirection: "row",
+  btn: {
+    width: 40,
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
+    justifyContent: "center",
   },
-  messageTime: {
-    color: "#64748b",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  copyButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: "#e0f2fe",
-    borderWidth: 1,
-    borderColor: "#38bdf8",
-  },
-  copyButtonText: {
-    fontSize: 12,
-    fontWeight: "900",
-    color: "#0369a1",
-  },
-  smallPressed: {
-    opacity: 0.75,
-    transform: [{ scale: 0.97 }],
+
+  send: {
+    width: 40,
+    backgroundColor: "#2563eb",
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
