@@ -1,9 +1,6 @@
 name: Build Unsigned IPA to Releases
 
 on:
-  push:
-    branches:
-      - main   # mỗi lần push lên main sẽ auto build
   workflow_dispatch:
 
 permissions:
@@ -38,6 +35,8 @@ jobs:
           cd ios
           pod install
 
+      # [MỚI - QUAN TRỌNG] Dùng Ruby để can thiệp sâu vào cấu trúc project
+      # Bước này đảm bảo tắt sạch sẽ mọi yêu cầu về chứng chỉ/Team ID
       - name: Force Disable Signing via Ruby
         run: |
           cd ios
@@ -47,32 +46,40 @@ jobs:
             project_path = Dir.glob("*.xcodeproj").first
             project = Xcodeproj::Project.open(project_path)
             
+            # Duyệt qua tất cả các target (App chính, Tests...)
             project.targets.each do |target|
               target.build_configurations.each do |config|
+                # Ép về Manual
                 config.build_settings["CODE_SIGN_STYLE"] = "Manual"
+                # Xóa sạch Team ID
                 config.build_settings["DEVELOPMENT_TEAM"] = ""
+                # Xóa yêu cầu Provisioning Profile
                 config.build_settings["PROVISIONING_PROFILE_SPECIFIER"] = ""
+                # Tắt bắt buộc ký code
                 config.build_settings["CODE_SIGNING_REQUIRED"] = "NO"
                 config.build_settings["CODE_SIGNING_ALLOWED"] = "NO"
               end
             end
             project.save
           '
+          echo "✅ Đã ép tắt chứng chỉ bằng Ruby thành công!"
 
       - name: Build Archive (No Signing)
         run: |
           cd ios
           SCHEME=$(basename *.xcworkspace .xcworkspace)
-
+          echo "Detected Scheme: $SCHEME"
+          
+          # Vẫn giữ thêm các cờ này cho chắc ăn
           xcodebuild archive \
             -workspace *.xcworkspace \
             -scheme "$SCHEME" \
             -configuration Release \
             -archivePath ../build/MyApp.xcarchive \
             -sdk iphoneos \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            -CODE_SIGNING_ALLOWED=NO \
+            -CODE_SIGNING_REQUIRED=NO \
+            -CODE_SIGN_IDENTITY=""
 
       - name: Create IPA from Archive
         run: |
@@ -83,14 +90,15 @@ jobs:
 
       - name: Generate Tag Name
         id: tag
-        run: echo "release_tag=build-$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
+        run: |
+          echo "release_tag=build-$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
 
       - name: Release to GitHub
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.tag.outputs.release_tag }}
           name: Bản Build ${{ steps.tag.outputs.release_tag }}
-          body: "IPA unsigned build tự động"
+          body: "Bản build không chứng chỉ (Unsigned). Dùng ESign/Scarlet để ký nhé!"
           files: ipa/build/TruyenTep.ipa
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
