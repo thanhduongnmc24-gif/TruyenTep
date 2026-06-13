@@ -1,17 +1,17 @@
 {
   "expo": {
-    "name": "Đếm thép",
-    "slug": "dem-thep",
+    "name": "Truyền tệp",
+    "slug": "truyen-tep",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "dem-thep",
+    "scheme": "truyen-tep",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "Demthep.duongnt.io.vn",
-      "appleTeamId": "DemThep",
+      "bundleIdentifier": "TruyenTep.duongnt.io.vn",
+      "appleTeamId": "TruyenTep",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCalendarsUsageDescription": "App cần quyền truy cập Lịch để nhắc nhở ca làm việc.",

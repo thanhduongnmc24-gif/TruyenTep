@@ -86,7 +86,7 @@ jobs:
           mkdir -p build/Payload
           mv build/MyApp.xcarchive/Products/Applications/*.app build/Payload/
           cd build
-          zip -r -9 DemThep.ipa Payload
+          zip -r -9 TruyenTep.ipa Payload
 
       - name: Generate Tag Name
         id: tag
@@ -99,6 +99,6 @@ jobs:
           tag_name: ${{ steps.tag.outputs.release_tag }}
           name: Bản Build ${{ steps.tag.outputs.release_tag }}
           body: "Bản build không chứng chỉ (Unsigned). Dùng ESign/Scarlet để ký nhé!"
-          files: ipa/build/DemThep.ipa
+          files: ipa/build/TruyenTep.ipa
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
