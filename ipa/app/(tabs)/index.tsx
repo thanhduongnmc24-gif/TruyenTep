@@ -28,8 +28,8 @@ type TimelineItem =
       kind: "text";
       sender: "iphone" | "pc";
       content: string;
-      createdAt: string;
-      createdAtMs: number;
+      displayTime: string;
+      orderMs: number;
     }
   | {
       id: string;
@@ -38,36 +38,56 @@ type TimelineItem =
       fileName: string;
       size?: number;
       file?: PcPendingFile;
-      createdAt: string;
-      createdAtMs: number;
+      displayTime: string;
+      orderMs: number;
     };
 
 export default function HomeScreen() {
   const [text, setText] = useState("");
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [status, setStatus] = useState("Chưa kết nối PC");
+  const [status, setStatus] = useState("Đang kiểm tra kết nối PC...");
 
   const scrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
+    let mounted = true;
+
+    async function boot() {
+      const pcUrl = await getPcUrl();
+
+      if (!mounted) return;
+
+      if (!pcUrl) {
+        setStatus("Chưa nhập địa chỉ PC trong Cài đặt");
+        return;
+      }
+
+      setStatus(`Đang dùng PC: ${pcUrl}`);
+      await refreshAll(false);
+    }
+
+    boot();
+
     const timer = setInterval(async () => {
       try {
         const pcUrl = await getPcUrl();
 
         if (!pcUrl) {
-          setStatus("Chưa nhập địa chỉ PC");
+          setStatus("Chưa nhập địa chỉ PC trong Cài đặt");
           return;
         }
 
-        await pullMessages();
-        await loadFiles();
+        await refreshAll(false);
       } catch {
-        // Không để polling làm app crash
+        // Không cho polling làm app crash
       }
     }, 1000);
 
-    return () => clearInterval(timer);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -84,12 +104,44 @@ export default function HomeScreen() {
     });
   }
 
-  function parseTime(value: string) {
-    const parsed = Date.parse(value.replace(" ", "T"));
-    return Number.isNaN(parsed) ? Date.now() : parsed;
+  function normalizeDisplayTime(value?: string) {
+    if (!value) return nowText();
+
+    const datePart = value.includes(" ") ? value.split(" ")[1] : value;
+
+    if (datePart && datePart.length >= 5) {
+      return datePart;
+    }
+
+    return value;
+  }
+
+  function cleanFileName(name: string) {
+    if (!name) return "file";
+
+    let output = name;
+
+    try {
+      output = decodeURIComponent(output);
+    } catch {
+      // bỏ qua nếu không decode được
+    }
+
+    // Bỏ prefix kiểu 20260615_001054_
+    output = output.replace(/^\d{8}_\d{6}_/, "");
+
+    // Bỏ prefix kiểu 2026-06-15_00-10-54_
+    output = output.replace(/^\d{4}-\d{2}-\d{2}[_-]\d{2}[-_]\d{2}[-_]\d{2}[_-]/, "");
+
+    // Gọn khoảng trắng
+    output = output.replace(/\s+/g, " ").trim();
+
+    return output || name;
   }
 
   function addItems(items: TimelineItem[]) {
+    if (items.length === 0) return;
+
     setTimeline((old) => {
       const ids = new Set(old.map((x) => x.id));
       const filtered = items.filter((x) => !ids.has(x.id));
@@ -98,169 +150,11 @@ export default function HomeScreen() {
         return old;
       }
 
-      return [...old, ...filtered].sort(
-        (a, b) => a.createdAtMs - b.createdAtMs
-      );
+      return [...old, ...filtered].sort((a, b) => a.orderMs - b.orderMs);
     });
   }
 
-  async function sendText() {
-    const content = text.trim();
-
-    if (!content) {
-      return;
-    }
-
-    try {
-      const result = await sendTextToPc(content);
-
-      if (result.ok) {
-        const createdAtMs = Date.now();
-
-        addItems([
-          {
-            id: `iphone_text_${createdAtMs}`,
-            kind: "text",
-            sender: "iphone",
-            content,
-            createdAt: nowText(),
-            createdAtMs,
-          },
-        ]);
-
-        setText("");
-        setStatus("Đã gửi tin nhắn");
-      } else {
-        Alert.alert("Lỗi", result.error ?? "Không gửi được tin nhắn.");
-      }
-    } catch (error: any) {
-      Alert.alert("Lỗi gửi text", error.message);
-    }
-  }
-
-  async function pullMessages() {
-    try {
-      const data: PcMessage[] = await pullMessagesFromPc();
-
-      if (data.length === 0) {
-        return;
-      }
-
-      addItems(
-        data.map((m) => ({
-          id: `pc_text_${m.id}`,
-          kind: "text",
-          sender: "pc",
-          content: m.content,
-          createdAt: m.createdAt,
-          createdAtMs: parseTime(m.createdAt),
-        }))
-      );
-
-      setStatus(`Nhận ${data.length} tin nhắn từ PC`);
-    } catch {
-      // Không để app crash
-    }
-  }
-
-  async function loadFiles() {
-    try {
-      const files = await getPendingFilesFromPc();
-
-      if (files.length === 0) {
-        return;
-      }
-
-      addItems(
-        files.map((f) => ({
-          id: `pc_file_${f.id}`,
-          kind: "file",
-          sender: "pc",
-          fileName: f.fileName,
-          size: f.size,
-          file: f,
-          createdAt: f.createdAt,
-          createdAtMs: parseTime(f.createdAt),
-        }))
-      );
-
-      setStatus(`Có ${files.length} file từ PC`);
-    } catch {
-      // Không để app crash
-    }
-  }
-
-  async function sendFile() {
-  try {
-    const pcUrl = await getPcUrl();
-
-    if (!pcUrl) {
-      Alert.alert("Chưa có địa chỉ PC", "Vào tab Cài đặt nhập địa chỉ PC trước.");
-      return;
-    }
-
-    const DocumentPicker = await import("expo-document-picker");
-
-    const result = await DocumentPicker.getDocumentAsync({
-      type: "*/*",
-      copyToCacheDirectory: true,
-      multiple: false,
-    });
-
-    if (result.canceled) return;
-
-    const pickedFile = result.assets[0];
-
-    const upload = await uploadFileToPc({
-      uri: pickedFile.uri,
-      name: pickedFile.name,
-      mimeType: pickedFile.mimeType,
-    });
-
-    if (upload.ok) {
-      const createdAtMs = Date.now();
-
-      addItems([
-        {
-          id: `iphone_file_${createdAtMs}`,
-          kind: "file",
-          sender: "iphone",
-          fileName: upload.fileName ?? pickedFile.name,
-          size: upload.size,
-          createdAt: nowText(),
-          createdAtMs,
-        },
-      ]);
-
-      setStatus("Đã gửi file sang PC");
-    } else {
-      Alert.alert("Lỗi", upload.error ?? "Không gửi được file.");
-    }
-  } catch (error: any) {
-    Alert.alert("Lỗi gửi file", error?.message ?? "Không gửi được file.");
-  }
-}
-
-  async function downloadFile(file: PcPendingFile) {
-    try {
-      await downloadFileFromPc(file);
-    } catch (error: any) {
-      Alert.alert("Lỗi tải file", error.message);
-    }
-  }
-
-  async function copyTextToClipboard(content: string) {
-  try {
-    const Clipboard = await import("expo-clipboard");
-    await Clipboard.setStringAsync(content);
-    Alert.alert("Đã copy", "Đã copy nội dung tin nhắn.");
-  } catch {
-    Alert.alert("Không copy được", "Thiếu module expo-clipboard hoặc thiết bị không hỗ trợ.");
-  }
-}
-
- 
-function toggle(id: string) {
+  function toggle(id: string) {
   setExpanded((old) => {
     const next = { ...old };
     next[id] = !old[id];
@@ -268,12 +162,191 @@ function toggle(id: string) {
   });
 }
 
-
   function formatSize(size?: number) {
     if (!size) return "";
     if (size < 1024) return `${size} B`;
     if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
     return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  async function refreshAll(showAlert: boolean) {
+    try {
+      const pcUrl = await getPcUrl();
+
+      if (!pcUrl) {
+        setStatus("Chưa nhập địa chỉ PC trong Cài đặt");
+
+        if (showAlert) {
+          Alert.alert(
+            "Chưa có địa chỉ PC",
+            "Vào tab Cài đặt và nhập địa chỉ PC, ví dụ: http://192.168.1.217:8787"
+          );
+        }
+
+        return;
+      }
+
+      const [messages, files] = await Promise.all([
+        pullMessagesFromPc(),
+        getPendingFilesFromPc(),
+      ]);
+
+      const baseMs = Date.now();
+      const newItems: TimelineItem[] = [];
+
+      messages.forEach((m: PcMessage, index: number) => {
+        newItems.push({
+          id: `pc_text_${m.id}`,
+          kind: "text",
+          sender: "pc",
+          content: m.content,
+          displayTime: normalizeDisplayTime(m.createdAt),
+          orderMs: baseMs + index,
+        });
+      });
+
+      files.forEach((f: PcPendingFile, index: number) => {
+        newItems.push({
+          id: `pc_file_${f.id}`,
+          kind: "file",
+          sender: "pc",
+          fileName: cleanFileName(f.fileName),
+          size: f.size,
+          file: f,
+          displayTime: normalizeDisplayTime(f.createdAt),
+          orderMs: baseMs + messages.length + index,
+        });
+      });
+
+      addItems(newItems);
+
+      if (messages.length > 0 || files.length > 0) {
+        setStatus(`Nhận ${messages.length} tin nhắn, ${files.length} file từ PC`);
+      } else {
+        setStatus(`Đã kết nối PC`);
+      }
+
+      if (showAlert) {
+        Alert.alert(
+          "Đã làm mới",
+          `Nhận ${messages.length} tin nhắn và ${files.length} file.`
+        );
+      }
+    } catch (error: any) {
+      setStatus("Không kết nối được PC");
+
+      if (showAlert) {
+        Alert.alert("Lỗi kết nối", error?.message ?? "Không kết nối được PC.");
+      }
+    }
+  }
+
+  async function sendText() {
+    const content = text.trim();
+
+    if (!content) return;
+
+    try {
+      const pcUrl = await getPcUrl();
+
+      if (!pcUrl) {
+        Alert.alert("Chưa có địa chỉ PC", "Vào tab Cài đặt nhập địa chỉ PC trước.");
+        return;
+      }
+
+      const result = await sendTextToPc(content);
+
+      if (result.ok) {
+        const ms = Date.now();
+
+        addItems([
+          {
+            id: `iphone_text_${ms}`,
+            kind: "text",
+            sender: "iphone",
+            content,
+            displayTime: nowText(),
+            orderMs: ms,
+          },
+        ]);
+
+        setText("");
+        setStatus("Đã gửi tin nhắn sang PC");
+      } else {
+        Alert.alert("Lỗi", result.error ?? "Không gửi được tin nhắn.");
+      }
+    } catch (error: any) {
+      Alert.alert("Lỗi gửi text", error?.message ?? "Không gửi được text.");
+    }
+  }
+
+  async function sendFile() {
+    try {
+      const pcUrl = await getPcUrl();
+
+      if (!pcUrl) {
+        Alert.alert("Chưa có địa chỉ PC", "Vào tab Cài đặt nhập địa chỉ PC trước.");
+        return;
+      }
+
+      const DocumentPicker = await import("expo-document-picker");
+
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "*/*",
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+
+      if (result.canceled) return;
+
+      const pickedFile = result.assets[0];
+
+      const upload = await uploadFileToPc({
+        uri: pickedFile.uri,
+        name: pickedFile.name,
+        mimeType: pickedFile.mimeType,
+      });
+
+      if (upload.ok) {
+        const ms = Date.now();
+
+        addItems([
+          {
+            id: `iphone_file_${ms}`,
+            kind: "file",
+            sender: "iphone",
+            fileName: cleanFileName(upload.fileName ?? pickedFile.name),
+            size: upload.size,
+            displayTime: nowText(),
+            orderMs: ms,
+          },
+        ]);
+
+        setStatus("Đã gửi file sang PC");
+      } else {
+        Alert.alert("Lỗi", upload.error ?? "Không gửi được file.");
+      }
+    } catch (error: any) {
+      Alert.alert("Lỗi gửi file", error?.message ?? "Không gửi được file.");
+    }
+  }
+
+  async function downloadFile(file: PcPendingFile) {
+    try {
+      await downloadFileFromPc(file);
+    } catch (error: any) {
+      Alert.alert("Lỗi tải file", error?.message ?? "Không tải được file.");
+    }
+  }
+
+  async function copyTextToClipboard(content: string) {
+    try {
+      const Clipboard = await import("expo-clipboard");
+      await Clipboard.setStringAsync(content);
+      Alert.alert("Đã copy", "Đã copy nội dung tin nhắn.");
+    } catch {
+      Alert.alert("Không copy được", "Thiết bị không hỗ trợ hoặc thiếu clipboard module.");
+    }
   }
 
   return (
@@ -342,7 +415,7 @@ function toggle(id: string) {
                       isMine ? styles.myTimeText : styles.pcTimeText,
                     ]}
                   >
-                    {formatSize(item.size)} • {item.createdAt}
+                    {formatSize(item.size)} • {item.displayTime}
                   </Text>
 
                   {!isMine && item.file ? (
@@ -399,12 +472,12 @@ function toggle(id: string) {
                       isMine ? styles.myTimeText : styles.pcTimeText,
                     ]}
                   >
-                    {item.createdAt}
+                    {item.displayTime}
                   </Text>
 
                   {!isMine ? (
                     <Pressable onPress={() => copyTextToClipboard(item.content)}>
-                     <Text style={styles.copyText}>Copy</Text>
+                      <Text style={styles.copyText}>Copy</Text>
                     </Pressable>
                   ) : null}
                 </View>
@@ -417,6 +490,10 @@ function toggle(id: string) {
       <View style={styles.inputBox}>
         <Pressable style={styles.fileButton} onPress={sendFile}>
           <Text style={styles.fileButtonText}>📎</Text>
+        </Pressable>
+
+        <Pressable style={styles.refreshButton} onPress={() => refreshAll(true)}>
+          <Text style={styles.refreshButtonText}>↻</Text>
         </Pressable>
 
         <TextInput
@@ -440,10 +517,7 @@ function toggle(id: string) {
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: "#eef2f7",
-  },
+  screen: { flex: 1, backgroundColor: "#eef2f7" },
   header: {
     paddingHorizontal: 16,
     paddingTop: 14,
@@ -455,16 +529,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  title: {
-    fontSize: 24,
-    fontWeight: "900",
-    color: "#0f172a",
-  },
-  subtitle: {
-    fontSize: 13,
-    color: "#64748b",
-    fontWeight: "600",
-  },
+  title: { fontSize: 24, fontWeight: "900", color: "#0f172a" },
+  subtitle: { fontSize: 13, color: "#64748b", fontWeight: "600" },
   statusPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -476,15 +542,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#86efac",
   },
-  statusDot: {
-    color: "#16a34a",
-    fontSize: 10,
-  },
-  statusText: {
-    color: "#166534",
-    fontWeight: "900",
-    fontSize: 12,
-  },
+  statusDot: { color: "#16a34a", fontSize: 10 },
+  statusText: { color: "#166534", fontWeight: "900", fontSize: 12 },
   status: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -492,79 +551,34 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
   },
-  chat: {
-    flex: 1,
-  },
-  chatContent: {
-    paddingHorizontal: 12,
-    paddingBottom: 12,
-  },
-  emptyBox: {
-    marginTop: 90,
-    alignItems: "center",
-    padding: 24,
-  },
-  emptyIcon: {
-    fontSize: 42,
-    marginBottom: 8,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#0f172a",
-  },
-  emptyText: {
-    marginTop: 4,
-    color: "#64748b",
-    textAlign: "center",
-  },
-  row: {
-    marginVertical: 5,
-    width: "100%",
-  },
-  left: {
-    alignItems: "flex-start",
-  },
-  right: {
-    alignItems: "flex-end",
-  },
+  chat: { flex: 1 },
+  chatContent: { paddingHorizontal: 12, paddingBottom: 12 },
+  emptyBox: { marginTop: 90, alignItems: "center", padding: 24 },
+  emptyIcon: { fontSize: 42, marginBottom: 8 },
+  emptyTitle: { fontSize: 18, fontWeight: "900", color: "#0f172a" },
+  emptyText: { marginTop: 4, color: "#64748b", textAlign: "center" },
+  row: { marginVertical: 5, width: "100%" },
+  left: { alignItems: "flex-start" },
+  right: { alignItems: "flex-end" },
   bubble: {
     maxWidth: "78%",
     paddingHorizontal: 13,
     paddingVertical: 9,
     borderRadius: 20,
   },
-  myBubble: {
-    backgroundColor: "#2563eb",
-    borderBottomRightRadius: 6,
-  },
+  myBubble: { backgroundColor: "#2563eb", borderBottomRightRadius: 6 },
   pcBubble: {
     backgroundColor: "#ffffff",
     borderBottomLeftRadius: 6,
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
-  messageText: {
-    fontSize: 16,
-    lineHeight: 22,
-  },
-  myMessageText: {
-    color: "#ffffff",
-  },
-  pcMessageText: {
-    color: "#0f172a",
-  },
-  moreText: {
-    marginTop: 5,
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  moreTextMine: {
-    color: "#dbeafe",
-  },
-  moreTextPc: {
-    color: "#2563eb",
-  },
+  messageText: { fontSize: 16, lineHeight: 22 },
+  myMessageText: { color: "#ffffff" },
+  pcMessageText: { color: "#0f172a" },
+  moreText: { marginTop: 5, fontSize: 12, fontWeight: "900" },
+  moreTextMine: { color: "#dbeafe" },
+  moreTextPc: { color: "#2563eb" },
   messageFooter: {
     marginTop: 6,
     flexDirection: "row",
@@ -572,16 +586,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
-  timeText: {
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  myTimeText: {
-    color: "#dbeafe",
-  },
-  pcTimeText: {
-    color: "#94a3b8",
-  },
+  timeText: { fontSize: 10, fontWeight: "700" },
+  myTimeText: { color: "#dbeafe" },
+  pcTimeText: { color: "#94a3b8" },
   copyText: {
     color: "#0369a1",
     fontSize: 10,
@@ -597,31 +604,17 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     marginVertical: 5,
   },
-  myFileBubble: {
-    backgroundColor: "#2563eb",
-    borderBottomRightRadius: 6,
-  },
+  myFileBubble: { backgroundColor: "#2563eb", borderBottomRightRadius: 6 },
   pcFileBubble: {
     backgroundColor: "#fef3c7",
     borderBottomLeftRadius: 6,
     borderWidth: 1,
     borderColor: "#fde68a",
   },
-  fileText: {
-    fontSize: 15,
-    fontWeight: "900",
-  },
-  myFileText: {
-    color: "#ffffff",
-  },
-  pcFileText: {
-    color: "#78350f",
-  },
-  fileMeta: {
-    marginTop: 4,
-    fontSize: 12,
-    fontWeight: "700",
-  },
+  fileText: { fontSize: 15, fontWeight: "900" },
+  myFileText: { color: "#ffffff" },
+  pcFileText: { color: "#78350f" },
+  fileMeta: { marginTop: 4, fontSize: 12, fontWeight: "700" },
   downloadButton: {
     marginTop: 9,
     alignSelf: "flex-start",
@@ -630,11 +623,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 999,
   },
-  downloadText: {
-    color: "#ffffff",
-    fontWeight: "900",
-    fontSize: 12,
-  },
+  downloadText: { color: "#ffffff", fontWeight: "900", fontSize: 12 },
   inputBox: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -656,9 +645,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  fileButtonText: {
-    fontSize: 18,
+  fileButtonText: { fontSize: 18 },
+  refreshButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 999,
+    backgroundColor: "#ecfeff",
+    borderWidth: 1,
+    borderColor: "#67e8f9",
+    alignItems: "center",
+    justifyContent: "center",
   },
+  refreshButtonText: { fontSize: 20, fontWeight: "900", color: "#0891b2" },
   input: {
     flex: 1,
     maxHeight: 110,
@@ -678,12 +676,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  sendButtonDisabled: {
-    backgroundColor: "#bfdbfe",
-  },
-  sendText: {
-    color: "#ffffff",
-    fontSize: 18,
-    fontWeight: "900",
-  },
+  sendButtonDisabled: { backgroundColor: "#bfdbfe" },
+  sendText: { color: "#ffffff", fontSize: 18, fontWeight: "900" },
 });
